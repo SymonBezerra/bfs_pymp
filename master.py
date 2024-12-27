@@ -80,11 +80,45 @@ class Master:
             
             if edges:
                 bfs_tree[node] = []
-                destinations = [edge['dest'] for edge in edges]
+                destinations = [edge['dest'] for edge in edges if edge['dest'] != node]
                 for d in destinations:
-                    if bfs_tree.get(d) is None: 
+                    if bfs_tree.get(d) is None:
                         bfs_tree[d] = []
                         nodes.append(d)
                         bfs_tree[node].append(d)
         
         return bfs_tree
+
+    def dfs(self, root):
+        for thread in self.threads:
+            self.send({
+                'type': 'init_dfs'
+            }, *thread)
+
+        nodes = deque([root])
+        dfs_tree = {root: []}
+
+        while nodes:
+            node = nodes.pop()
+            edges = self.get_edges(node, dfs=True)
+
+            if edges:
+                if dfs_tree.get(node) is None: dfs_tree[node] = []
+                destinations = [edge['dest'] for edge in edges if edge['dest'] != node]
+                for d in destinations:
+                    if dfs_tree.get(d) is None:
+                        dfs_tree[d] = []
+                        nodes.append(node)
+                        nodes.append(d)
+                        dfs_tree[node].append(d)
+                        self.send({
+                            'type': 'visit_node',
+                            'node': d
+                        }, *self.nodes[d])
+                        self.send({
+                            'type': 'visit_node',
+                            'node': node
+                        }, *self.nodes[node])
+                        break
+
+        return dfs_tree

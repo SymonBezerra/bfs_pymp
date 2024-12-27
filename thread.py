@@ -39,8 +39,9 @@ class Thread:
         elif msg.get('type') == 'get_edges':
             node = msg.get('node')
             for edge in self.edges[node]:
-                if (msg.get('bfs') or msg.get('dfs')) and (edge.dest in self.buffer['nodes_added']): continue
-                elif (msg.get('bfs') or msg.get('dfs')): self.buffer['nodes_added'].add(edge.dest)
+                if msg.get('bfs') and (edge.dest in self.buffer['nodes_added']): continue
+                elif msg.get('dfs') and (edge.dest in self.buffer['visited']): continue
+                elif msg.get('bfs'): self.buffer['nodes_added'].add(edge.dest)
                 self.socket.sendto(json.dumps({
                     'src': edge.src,
                     'dest': edge.dest,
@@ -50,10 +51,14 @@ class Thread:
                 data, _ = self.socket.recvfrom(1024)
                 if json.loads(data.decode()).get('status') != 'ok':
                     break
-            if msg.get('bfs') or msg.get('dfs'):
+            if msg.get('bfs'):
                 self.buffer['visited'].add(node)
                 self.buffer['nodes_added'].add(node)
             self.socket.sendto(json.dumps({'status': 'done'}).encode(), addr)
+        elif msg.get('type') == 'visit_node':
+            node = msg.get('node')
+            self.buffer['visited'].add(node)
+            self.socket.sendto(json.dumps({'status': 'ok'}).encode(), addr)
         return data
 
     def send(self, msg, ip, port):
