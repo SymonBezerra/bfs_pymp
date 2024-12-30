@@ -86,23 +86,22 @@ class Master:
         for thread in self.threads:
             self.send(Message(b'INIT_BFS', b''), *thread)
         root_node = root.encode()
-        nodes = deque([root_node])
-        bfs_tree = {root_node: []}
+        nodes = deque([Node(root_node)])
+        bfs_tree = {}
         
         while nodes:
             node = nodes.popleft()
-            edges = self.get_edges(node, bfs=True)
+            edges = self.get_edges(node.label, bfs=True)
 
             if edges:
                 bfs_tree[node] = []
                 destinations = []
                 for edge in edges:
-                    src, dest, _ = edge.split()
-                    if dest != node:
+                    _, dest, _ = edge.split()
+                    if Node(dest) != node:
                         destinations.append(Node(dest))
-                        bfs_tree[node].append(Node(dest))
+                        # bfs_tree[node].append(Node(dest))
                 for d in destinations:
-                    print(type(d))
                     if bfs_tree.get(d) is None:
                         bfs_tree[d] = []
                         nodes.append(d)

@@ -1,4 +1,4 @@
-import json
+from io import BytesIO
 import socket
 
 from graph import Edge, Node
@@ -13,6 +13,7 @@ class Thread:
         self.edges = dict()
         # cache buffer to keep track of visited nodess
         self.buffer = dict()
+        self.bytes_buffer = BytesIO()
 
     def recv(self):
         data, addr = self.socket.recvfrom(1024)
@@ -63,12 +64,12 @@ class Thread:
         msg = Message(data[:20].strip(), data[20:].strip())
         if msg.header == b'ADD_NODE':
             node = msg.body
-            self.edges[node] = dict()  # Use label (bytes) as key
+            self.edges[node] = []  # Use label (bytes) as key
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         
         elif msg.header == b'ADD_EDGE':
             n1, n2, weight = msg.body.split()
-            self.edges[n1][n2] = Edge(n1, n2, int(weight))
+            self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         elif msg.header == b'INIT_BFS' or msg.header == b'INIT_DFS':
             self.buffer['visited'] = set()
@@ -83,12 +84,20 @@ class Thread:
                 self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
         elif msg.header == b'GET_EDGES' or msg.header == b'GET_EDGES_BFS' or msg.header == b'GET_EDGES_DFS':
             node = msg.body
-            for e in self.edges[node]:
-                edge = self.edges[node][e]
+            for edge in self.edges[node]:
                 if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.buffer['nodes_added']): continue
                 elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.buffer['visited']): continue
                 elif msg.header == b'GET_EDGES_BFS': self.buffer['nodes_added'].add(edge.dest)
-                self.socket.sendto(Message(b'EDGE', f'{edge.src} {edge.dest} {edge.weight}'.encode()).build(), addr)
+                with BytesIO() as buffer:
+                    buffer.write(b'EDGE'.ljust(20))
+                    buffer.write(edge.src)
+                    buffer.write(b' ')
+                    buffer.write(edge.dest)
+                    buffer.write(b' ')
+                    buffer.write(str(edge.weight).encode())
+                    self.socket.sendto(buffer.getvalue(), addr)
+                    buffer.seek(0)
+                    buffer.truncate()
                 answer, _ = self.socket.recvfrom(1024)
                 if Message(answer[:20].strip(), answer[20:]).header != b'OK':
                     break

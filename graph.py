@@ -11,6 +11,10 @@ class Node:
     def __repr__(self):
         return str(self.label.decode())
 
+    def __eq__(self, other):
+        if isinstance(other, Node):
+            return self.label == other.label
+        raise TypeError(f'Cannot compare Node and {type(other)}')
 class Edge:
     def __init__(self, src: bytes, dest: bytes, weight=1, attr=dict()):
         self.src = src
