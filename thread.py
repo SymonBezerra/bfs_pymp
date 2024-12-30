@@ -108,7 +108,7 @@ class Thread:
         elif msg.header == b'VISIT_NODE':
             node = msg.body
             self.buffer['visited'].add(node)
-            self.socket.sendto(Message('OK', '').build(), addr)
+            self.socket.sendto(Message(b'OK', b'').build(), addr)
         return data
 
     def send(self, header, body, ip, port):

@@ -113,24 +113,29 @@ class Master:
         for thread in self.threads:
             self.send(Message(b'INIT_DFS', b''), *thread)
 
-        nodes = deque([root])
-        dfs_tree = {root: []}
+        nodes = deque([Node(root.encode())])
+        dfs_tree = {Node(root.encode()): []}
 
         while nodes:
             node = nodes.pop()
-            edges = self.get_edges(node, dfs=True)
+            edges = self.get_edges(node.label, dfs=True)
 
             if edges:
                 if dfs_tree.get(node) is None: dfs_tree[node] = []
-                destinations = [edge.split()[1] for edge in edges if edge.split()[2] != node]
+                destinations = []
+                for edge in edges:
+                    _, dest, _ = edge.split()
+                    if Node(dest) != node:
+                        destinations.append(Node(dest))
+                        # bfs_tree[node].append(Node(dest))
                 for d in destinations:
-                    if dfs_tree.get(d.decode()) is None:
-                        dfs_tree[d.decode()] = []
-                        nodes.append(node.decode())
-                        nodes.append(d.decode())
-                        dfs_tree[node].append(d.decode())
-                        self.send(Message(b'VISIT_NODE', d), *self.nodes[d])
-                        self.send(Message(b'VISIT_NODE', node), *self.nodes[node])
+                    if dfs_tree.get(d) is None:
+                        dfs_tree[d] = []
+                        nodes.append(node)
+                        nodes.append(d)
+                        dfs_tree[node].append(d)
+                        self.send(Message(b'VISIT_NODE', d.label), *self.nodes[d.label])
+                        self.send(Message(b'VISIT_NODE', node.label), *self.nodes[node.label])
                         break
 
         return dfs_tree
