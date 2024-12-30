@@ -3,6 +3,7 @@ import json
 import socket
 
 from message import Message
+from graph import Node
 
 class Master:
     def __init__(self, ip, port):
@@ -35,7 +36,7 @@ class Master:
 
     def add_node(self, node):
         ip, port = self.__get_partition(node)
-        self.nodes[node] = (ip, port)
+        self.nodes[node.encode()] = (ip, port)
         return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
 
     def add_edge(self, n1, n2, weight=1):
@@ -45,7 +46,8 @@ class Master:
         #     'node2': n2,
         #     'weight': weight
         # }, self.nodes[n1][0], self.nodes[n1][1])
-        return self.send(Message(b'ADD_EDGE', f'{n1} {n2} {weight}'.encode()), self.nodes[n1][0], self.nodes[n1][1])
+        n1_node = n1.encode()
+        return self.send(Message(b'ADD_EDGE', f'{n1} {n2} {weight}'.encode()), self.nodes[n1_node][0], self.nodes[n1_node][1])
 
     def get_edges(self, node, **kwargs):
         edges = []
@@ -70,7 +72,7 @@ class Master:
         header = b'GET_EDGES'
         if dfs: header = b'GET_EDGES_DFS'
         elif bfs: header = b'GET_EDGES_BFS'
-        self.socket.sendto(Message(header, node.encode()).build(), (self.nodes[node][0], self.nodes[node][1]))
+        self.socket.sendto(Message(header, node).build(), (self.nodes[node][0], self.nodes[node][1]))
         while True:
             msg, addr = self.recv()
             self.socket.sendto(Message(b'OK', b'').build(), addr)
@@ -83,23 +85,24 @@ class Master:
     def bfs(self, root):
         for thread in self.threads:
             self.send(Message(b'INIT_BFS', b''), *thread)
-        
-        nodes = deque([root])
-        bfs_tree = {root: []}
+        root_node = root.encode()
+        nodes = deque([root_node])
+        bfs_tree = {root_node: []}
         
         while nodes:
             node = nodes.popleft()
             edges = self.get_edges(node, bfs=True)
-            
+
             if edges:
                 bfs_tree[node] = []
                 destinations = []
                 for edge in edges:
                     src, dest, _ = edge.split()
                     if dest != node:
-                        destinations.append(dest.decode('latin1'))
-                        bfs_tree[node].append(dest.decode('latin1'))
+                        destinations.append(Node(dest))
+                        bfs_tree[node].append(Node(dest))
                 for d in destinations:
+                    print(type(d))
                     if bfs_tree.get(d) is None:
                         bfs_tree[d] = []
                         nodes.append(d)

@@ -1,7 +1,7 @@
 import json
 import socket
 
-from graph import Edge
+from graph import Edge, Node
 from message import Message
 
 class Thread:
@@ -63,11 +63,12 @@ class Thread:
         msg = Message(data[:20].strip(), data[20:].strip())
         if msg.header == b'ADD_NODE':
             node = msg.body
-            self.edges[node.decode()] = []
+            self.edges[node] = dict()  # Use label (bytes) as key
             self.socket.sendto(Message(b'OK', b'').build(), addr)
+        
         elif msg.header == b'ADD_EDGE':
-            n1, n2, weight = msg.body.decode().split()
-            self.edges[n1].append(Edge(n1, n2, int(weight)))
+            n1, n2, weight = msg.body.split()
+            self.edges[n1][n2] = Edge(n1, n2, int(weight))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         elif msg.header == b'INIT_BFS' or msg.header == b'INIT_DFS':
             self.buffer['visited'] = set()
@@ -82,7 +83,8 @@ class Thread:
                 self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
         elif msg.header == b'GET_EDGES' or msg.header == b'GET_EDGES_BFS' or msg.header == b'GET_EDGES_DFS':
             node = msg.body
-            for edge in self.edges[node.decode()]:
+            for e in self.edges[node]:
+                edge = self.edges[node][e]
                 if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.buffer['nodes_added']): continue
                 elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.buffer['visited']): continue
                 elif msg.header == b'GET_EDGES_BFS': self.buffer['nodes_added'].add(edge.dest)
