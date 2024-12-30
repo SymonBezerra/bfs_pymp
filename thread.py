@@ -84,27 +84,60 @@ class Thread:
                 self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
         elif msg.header == b'GET_EDGES' or msg.header == b'GET_EDGES_BFS' or msg.header == b'GET_EDGES_DFS':
             node = msg.body
-            count = 0
+            # count = 0
+            batch_count = 0
+            # while count < len(self.edges[node]):
+            #     edge = self.edges[node][count]
+            #     if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.cache['nodes_added']): continue
+            #     elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.cache['visited']): continue
+            #     elif msg.header == b'GET_EDGES_BFS': self.cache['nodes_added'].add(edge.dest)
+            #     self.bytes_buffer.write(b'EDGE'.ljust(20))
+            #     self.bytes_buffer.write(edge.src)
+            #     self.bytes_buffer.write(b' ')
+            #     self.bytes_buffer.write(edge.dest)
+            #     self.bytes_buffer.write(b' ')
+            #     self.bytes_buffer.write(str(edge.weight).encode())
+            #     self.bytes_buffer.write(b'|') # edge separator
+            #     answer, _ = self.socket.recvfrom(1024)
+            #     if Message(answer[:20].strip(), answer[20:]).header != b'OK':
+            #         break
+            #     count += 1
+            #     batch_count += 1
+            #     if batch_count == 20:
+            #         batch_count = 0
+            #         self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+            #         answer, _ = self.recv()
+            #         if answer.header != b'OK': break
+            #         self.bytes_buffer.seek(0)
+            #         self.bytes_buffer.truncate()
+            self.bytes_buffer.write(b'EDGE'.ljust(20))
             for edge in self.edges[node]:
                 if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.cache['nodes_added']): continue
                 elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.cache['visited']): continue
                 elif msg.header == b'GET_EDGES_BFS': self.cache['nodes_added'].add(edge.dest)
-                self.bytes_buffer.write(b'EDGE'.ljust(20))
                 self.bytes_buffer.write(edge.src)
-                self.bytes_buffer.write(b' ')
+                self.bytes_buffer.write(b',')
                 self.bytes_buffer.write(edge.dest)
-                self.bytes_buffer.write(b' ')
+                self.bytes_buffer.write(b',')
                 self.bytes_buffer.write(str(edge.weight).encode())
-                self.socket.sendto(self.bytes_buffer.getvalue(), addr)
-                self.bytes_buffer.seek(0)
-                self.bytes_buffer.truncate()
-                answer, _ = self.socket.recvfrom(1024)
-                if Message(answer[:20].strip(), answer[20:]).header != b'OK':
-                    break
-            if msg.header == b'GET_EDGES_BFS':
-                self.cache['visited'].add(node)
-                self.cache['nodes_added'].add(node)
+                self.bytes_buffer.write(b'|')
+                batch_count += 1
+                if batch_count == 100:
+                    batch_count = 0
+                    print(self.bytes_buffer.getvalue())
+                    self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+                    answer, _ = self.socket.recvfrom(1024)
+                    if answer[:20].strip() != b'OK': break
+                    self.bytes_buffer.seek(0)
+                    self.bytes_buffer.truncate()
+                    self.bytes_buffer.write(b'EDGE'.ljust(20))
+
+            self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+            self.bytes_buffer.seek(0)
+            self.bytes_buffer.truncate()
+            self.socket.recvfrom(1024) # await confirmation
             self.socket.sendto(Message(b'DONE', b'').build(), addr)
+
         elif msg.header == b'VISIT_NODE':
             node = msg.body
             self.cache['visited'].add(node)

@@ -16,8 +16,8 @@ class Master:
         self.threads = list()
         self.cache = dict()
 
-    def recv(self):
-        data, addr = self.socket.recvfrom(1024)
+    def recv(self, bufsize=1024):
+        data, addr = self.socket.recvfrom(bufsize)
         # return json.loads(data.decode())
         return Message(data[:20].strip(), data[20:]), addr
 
@@ -37,6 +37,7 @@ class Master:
 
     def add_node(self, node):
         ip, port = self.__get_partition(node)
+        print(node, port)
         self.nodes[node.encode()] = (ip, port)
         return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
 
@@ -52,20 +53,6 @@ class Master:
 
     def get_edges(self, node, **kwargs):
         edges = []
-        # if node not in self.nodes:
-        #     return None
-        # self.socket.sendto(json.dumps({
-        #     'type': 'get_edges',
-        #     'node': node,
-        #     'bfs': kwargs.get('bfs'),
-        #     'dfs': kwargs.get('dfs')
-        # }).encode(), (self.nodes[node][0], self.nodes[node][1]))
-        # while True:
-        #     data, addr = self.socket.recvfrom(1024)
-        #     self.socket.sendto(json.dumps({'status': 'ok'}).encode(), addr)
-        #     if json.loads(data).get('status') == 'done':
-        #         break
-        #     edges.append(json.loads(data))
         if node not in self.nodes:
             return None
         dfs = kwargs.get('dfs')
@@ -75,37 +62,30 @@ class Master:
         elif bfs: header = b'GET_EDGES_BFS'
         self.socket.sendto(Message(header, node).build(), (self.nodes[node][0], self.nodes[node][1]))
         while True:
-            msg, addr = self.recv()
+            msg, addr = self.recv(8096)
             self.socket.sendto(Message(b'OK', b'').build(), addr)
             if msg.header == b'DONE':
                 break
-            edges.append(msg.body)
+            edges.extend(msg.body.split(b'|'))
         return edges
 
 
     def bfs(self, root):
         for thread in self.threads:
             self.send(Message(b'INIT_BFS', b''), *thread)
-        # init local cache
-        self.cache['get_edges'] = dict()
         root_node = root.encode()
         nodes = deque([Node(root_node)])
         bfs_tree = {}
         
         while nodes:
             node = nodes.popleft()
-            # cached_edges = self.cache['get_edges'].get(node.label)
-            # if not cached_edges:
-            #     edges = self.get_edges(node.label, bfs=True)
-            #     self.cache['get_edges'][node.label] = edges
-            # else: edges = cached_edges
             edges = self.get_edges(node.label, bfs=True)
 
             if edges:
                 if bfs_tree.get(node) is None: bfs_tree[node] = []
-                destinations = []
                 for edge in edges:
-                    _, dest, _ = edge.split()
+                    if edge == b'': continue
+                    _, dest, _ = edge.split(b',')
                     dest_node = Node(dest)
                     if dest_node != node and bfs_tree.get(dest_node) is None:
                         # destinations.append(dest_node)
