@@ -14,6 +14,7 @@ class Master:
         self.nodes = dict()
         # list[tuple] to keep track of all client threads
         self.threads = list()
+        self.cache = dict()
 
     def recv(self):
         data, addr = self.socket.recvfrom(1024)
@@ -85,27 +86,37 @@ class Master:
     def bfs(self, root):
         for thread in self.threads:
             self.send(Message(b'INIT_BFS', b''), *thread)
+        # init local cache
+        self.cache['get_edges'] = dict()
         root_node = root.encode()
         nodes = deque([Node(root_node)])
         bfs_tree = {}
         
         while nodes:
             node = nodes.popleft()
+            # cached_edges = self.cache['get_edges'].get(node.label)
+            # if not cached_edges:
+            #     edges = self.get_edges(node.label, bfs=True)
+            #     self.cache['get_edges'][node.label] = edges
+            # else: edges = cached_edges
             edges = self.get_edges(node.label, bfs=True)
 
             if edges:
-                bfs_tree[node] = []
+                if bfs_tree.get(node) is None: bfs_tree[node] = []
                 destinations = []
                 for edge in edges:
                     _, dest, _ = edge.split()
-                    if Node(dest) != node:
-                        destinations.append(Node(dest))
-                        # bfs_tree[node].append(Node(dest))
-                for d in destinations:
-                    if bfs_tree.get(d) is None:
-                        bfs_tree[d] = []
-                        nodes.append(d)
-                        bfs_tree[node].append(d)
+                    dest_node = Node(dest)
+                    if dest_node != node and bfs_tree.get(dest_node) is None:
+                        # destinations.append(dest_node)
+                        nodes.append(dest_node)
+                        bfs_tree[node].append(Node(dest))
+                        bfs_tree[dest_node] = []
+                # for d in destinations:
+                #     if bfs_tree.get(d) is None:
+                #         bfs_tree[d] = []
+                #         nodes.append(d)
+                #         bfs_tree[node].append(d)
         
         return bfs_tree
 
@@ -113,12 +124,20 @@ class Master:
         for thread in self.threads:
             self.send(Message(b'INIT_DFS', b''), *thread)
 
+        self.cache['get_edges'] = dict()
+
         nodes = deque([Node(root.encode())])
         dfs_tree = {Node(root.encode()): []}
 
         while nodes:
             node = nodes.pop()
-            edges = self.get_edges(node.label, dfs=True)
+            # if self.send(Message(b'DFS', node.label), *self.nodes[node.label]).header == b'VISITED':
+            #     continue
+            cached_edges = self.cache['get_edges'].get(node.label)
+            if not cached_edges:
+                edges = self.get_edges(node.label, dfs=True)
+                self.cache['get_edges'][node.label] = edges
+            else: edges = cached_edges
 
             if edges:
                 if dfs_tree.get(node) is None: dfs_tree[node] = []

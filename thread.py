@@ -12,7 +12,7 @@ class Thread:
         # adjacency list, source → destinies kept in the clients
         self.edges = dict()
         # cache buffer to keep track of visited nodess
-        self.buffer = dict()
+        self.cache = dict()
         self.bytes_buffer = BytesIO()
 
     def recv(self):
@@ -28,22 +28,22 @@ class Thread:
         #     self.edges[n1].append(Edge(n1, n2, weight))
         #     self.socket.sendto(json.dumps({'status': 'ok'}).encode(), addr)
         # elif msg.get('type') == 'init_bfs' or msg.get('type') == 'init_dfs':
-        #     self.buffer['visited'] = set()
-        #     self.buffer['nodes_added'] = set()
+        #     self.cache['visited'] = set()
+        #     self.cache['nodes_added'] = set()
         #     self.socket.sendto(json.dumps({'status': 'ok'}).encode(), addr)
         # elif msg.get('type') == 'bfs' or msg.get('type') == 'dfs':
         #     node = msg.get('node')
-        #     if node in self.buffer['visited']:
+        #     if node in self.cache['visited']:
         #         self.socket.sendto(json.dumps({'status': 'visited'}).encode(), addr)
         #     else:
-        #         self.buffer['visited'].add(node)
+        #         self.cache['visited'].add(node)
         #         self.socket.sendto(json.dumps({'status': 'not_visited'}).encode(), addr)
         # elif msg.get('type') == 'get_edges':
         #     node = msg.get('node')
         #     for edge in self.edges[node]:
-        #         if msg.get('bfs') and (edge.dest in self.buffer['nodes_added']): continue
-        #         elif msg.get('dfs') and (edge.dest in self.buffer['visited']): continue
-        #         elif msg.get('bfs'): self.buffer['nodes_added'].add(edge.dest)
+        #         if msg.get('bfs') and (edge.dest in self.cache['nodes_added']): continue
+        #         elif msg.get('dfs') and (edge.dest in self.cache['visited']): continue
+        #         elif msg.get('bfs'): self.cache['nodes_added'].add(edge.dest)
         #         self.socket.sendto(json.dumps({
         #             'src': edge.src,
         #             'dest': edge.dest,
@@ -54,12 +54,12 @@ class Thread:
         #         if json.loads(data.decode()).get('status') != 'ok':
         #             break
         #     if msg.get('bfs'):
-        #         self.buffer['visited'].add(node)
-        #         self.buffer['nodes_added'].add(node)
+        #         self.cache['visited'].add(node)
+        #         self.cache['nodes_added'].add(node)
         #     self.socket.sendto(json.dumps({'status': 'done'}).encode(), addr)
         # elif msg.get('type') == 'visit_node':
         #     node = msg.get('node')
-        #     self.buffer['visited'].add(node)
+        #     self.cache['visited'].add(node)
         #     self.socket.sendto(json.dumps({'status': 'ok'}).encode(), addr)
         msg = Message(data[:20].strip(), data[20:].strip())
         if msg.header == b'ADD_NODE':
@@ -72,42 +72,42 @@ class Thread:
             self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         elif msg.header == b'INIT_BFS' or msg.header == b'INIT_DFS':
-            self.buffer['visited'] = set()
-            self.buffer['nodes_added'] = set()
+            self.cache['visited'] = set()
+            self.cache['nodes_added'] = set()
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         elif msg.header == b'BFS' or msg.header == b'DFS':
             node = msg.body
-            if node in self.buffer['visited']:
+            if node in self.cache['visited']:
                 self.socket.sendto(Message(b'VISITED', b'').build(), addr)
             else:
-                self.buffer['visited'].add(node)
+                self.cache['visited'].add(node)
                 self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
         elif msg.header == b'GET_EDGES' or msg.header == b'GET_EDGES_BFS' or msg.header == b'GET_EDGES_DFS':
             node = msg.body
+            count = 0
             for edge in self.edges[node]:
-                if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.buffer['nodes_added']): continue
-                elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.buffer['visited']): continue
-                elif msg.header == b'GET_EDGES_BFS': self.buffer['nodes_added'].add(edge.dest)
-                with BytesIO() as buffer:
-                    buffer.write(b'EDGE'.ljust(20))
-                    buffer.write(edge.src)
-                    buffer.write(b' ')
-                    buffer.write(edge.dest)
-                    buffer.write(b' ')
-                    buffer.write(str(edge.weight).encode())
-                    self.socket.sendto(buffer.getvalue(), addr)
-                    buffer.seek(0)
-                    buffer.truncate()
+                if msg.header == b'GET_EDGES_BFS' and (edge.dest in self.cache['nodes_added']): continue
+                elif msg.header == b'GET_EDGES_DFS' and (edge.dest in self.cache['visited']): continue
+                elif msg.header == b'GET_EDGES_BFS': self.cache['nodes_added'].add(edge.dest)
+                self.bytes_buffer.write(b'EDGE'.ljust(20))
+                self.bytes_buffer.write(edge.src)
+                self.bytes_buffer.write(b' ')
+                self.bytes_buffer.write(edge.dest)
+                self.bytes_buffer.write(b' ')
+                self.bytes_buffer.write(str(edge.weight).encode())
+                self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+                self.bytes_buffer.seek(0)
+                self.bytes_buffer.truncate()
                 answer, _ = self.socket.recvfrom(1024)
                 if Message(answer[:20].strip(), answer[20:]).header != b'OK':
                     break
             if msg.header == b'GET_EDGES_BFS':
-                self.buffer['visited'].add(node)
-                self.buffer['nodes_added'].add(node)
+                self.cache['visited'].add(node)
+                self.cache['nodes_added'].add(node)
             self.socket.sendto(Message(b'DONE', b'').build(), addr)
         elif msg.header == b'VISIT_NODE':
             node = msg.body
-            self.buffer['visited'].add(node)
+            self.cache['visited'].add(node)
             self.socket.sendto(Message(b'OK', b'').build(), addr)
         return data
 
