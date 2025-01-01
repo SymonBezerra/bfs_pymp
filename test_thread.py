@@ -6,7 +6,7 @@ args = args.parse_args()
 
 from thread import Thread
 
-client = Thread('127.0.0.1', args.port)
+client = Thread('0.0.0.0', args.port)
 
 if __name__ == '__main__':
     while True:
