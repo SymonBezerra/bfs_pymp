@@ -1,4 +1,5 @@
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 import json
 import socket
 
@@ -8,6 +9,14 @@ from graph import Node
 class Master:
     def __init__(self, ip, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+        # Set high priority for network traffic
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
+
+        # Set Type of Service (TOS) for QoS
+        self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
+
         self.socket.bind((ip, port))
 
         # nodes → ip kept on server
@@ -76,7 +85,7 @@ class Master:
         root_node = root.encode()
         nodes = deque([Node(root_node)])
         bfs_tree = {}
-        
+
         while nodes:
             node = nodes.popleft()
             edges = self.get_edges(node.label, bfs=True)
@@ -97,7 +106,7 @@ class Master:
                 #         bfs_tree[d] = []
                 #         nodes.append(d)
                 #         bfs_tree[node].append(d)
-        
+
         return bfs_tree
 
     def dfs(self, root):
@@ -122,10 +131,9 @@ class Master:
             if edges:
                 if dfs_tree.get(node) is None: dfs_tree[node] = []
                 destinations = []
-                for edge in edges:
-                    _, dest, _ = edge.split()
-                    if Node(dest) != node:
-                        destinations.append(Node(dest))
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    destinations = list(executor.map(lambda edge: Node(edge.split(b',')[1]) if edge else None, edges))
+                    destinations = list(filter(lambda dest: dest and dest != node, destinations))
                         # bfs_tree[node].append(Node(dest))
                 for d in destinations:
                     if dfs_tree.get(d) is None:

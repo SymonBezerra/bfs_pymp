@@ -7,6 +7,14 @@ from message import Message
 class Thread:
     def __init__(self, ip, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+        # Set high priority for network traffic
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
+
+        # Set Type of Service (TOS) for QoS
+        self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
+
         self.socket.bind((ip, port))
 
         # adjacency list, source → destinies kept in the clients
@@ -66,7 +74,7 @@ class Thread:
             node = msg.body
             self.edges[node] = []  # Use label (bytes) as key
             self.socket.sendto(Message(b'OK', b'').build(), addr)
-        
+
         elif msg.header == b'ADD_EDGE':
             n1, n2, weight = msg.body.split()
             self.edges[n1].append(Edge(n1, n2, int(weight)))
