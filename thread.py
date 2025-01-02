@@ -97,9 +97,17 @@ class Thread:
 
             batch_count = 0
 
-            self.bytes_buffer.write(b'EDGE'.ljust(20))
             if msg.header == b'GET_EDGES_BFS': edges = self.bfs(node)
             else: edges = self.edges[node]
+            self.bytes_buffer.write(b'VISITED'.ljust(20))
+            for visited in self.cache['visited']:
+                self.bytes_buffer.write(visited)
+                self.bytes_buffer.write(b',')
+            self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+            self.bytes_buffer.seek(0)
+            self.bytes_buffer.truncate()
+            self.bytes_buffer.write(b'EDGE'.ljust(20))
+            self.socket.recvfrom(1024) # await confirmation
             for edge in edges:
                 self.bytes_buffer.write(edge.src)
                 self.bytes_buffer.write(b',')

@@ -1,6 +1,6 @@
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-import json
+from random import randint
 import socket
 
 from message import Message
@@ -19,8 +19,6 @@ class Master:
 
         self.socket.bind((ip, port))
 
-        # Add these new attributes
-        self.adjacency = {}  # Track edges for partitioning decisions
         self.partition_loads = {}  # Track node count per partition
 
         # nodes → ip kept on server
@@ -42,6 +40,7 @@ class Master:
 
     def add_thread(self, ip, port):
         self.threads.append((ip, port))
+        self.partition_loads[(ip, port)] = 0
 
     def add_node(self, node):
         # ip, port = self.__get_partition(node)
@@ -50,71 +49,41 @@ class Master:
         # return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
         self.nodes[node.encode()] = None
 
-    def __get_partition(self, node):
-        # edge-cut would keep it mostly in one worker, requiring only boundary communications
-        node_key = node.encode() if isinstance(node, str) else node
-        
-        # Initialize partition loads if needed
-        if not self.partition_loads:
-            self.partition_loads = {i: 0 for i in range(len(self.threads))}
-        
-        # Check neighbors' partitions
-        neighbor_partitions = {}
-        neighbors = self.adjacency.get(node_key, set())
-        
-        for neighbor in neighbors:
-            if neighbor in self.nodes and self.nodes[neighbor] is not None:
-                partition_idx = self.threads.index(self.nodes[neighbor])
-                neighbor_partitions[partition_idx] = neighbor_partitions.get(partition_idx, 0) + 1
-        
-        if neighbor_partitions:
-            # Find partition with most neighbors, considering load
-            best_partition = None
-            best_score = float('-inf')
-            
-            for partition_idx, neighbor_count in neighbor_partitions.items():
-                # Score combines neighbor count and inverse of current load
-                load_factor = self.partition_loads[partition_idx] / max(1, sum(self.partition_loads.values()))
-                score = neighbor_count - load_factor
-                
-                if score > best_score:
-                    best_score = score
-                    best_partition = partition_idx
-                    
-            self.partition_loads[best_partition] += 1
-            return self.threads[best_partition]
-        else:
-            # If no neighbors, use least loaded partition
-            min_load_idx = min(self.partition_loads.items(), key=lambda x: x[1])[0]
-            self.partition_loads[min_load_idx] += 1
-            return self.threads[min_load_idx]
+    def __get_partition(self, node, neighbor=None):
+        if neighbor:
+            if self.partition_loads[neighbor] >= len(self.threads):
+                index = randint(0, len(self.threads) - 1)
+                while self.threads[index] == neighbor:
+                    index = randint(0, len(self.threads) - 1)
+                self.partition_loads[self.threads[index]] += 1
+                return self.threads[index]
+            else:
+                self.partition_loads[neighbor] += 1
+                return neighbor
+        index = randint(0, len(self.threads) - 1)
+        while self.threads[index] == neighbor:
+            index = randint(0, len(self.threads) - 1)
+        self.partition_loads[self.threads[index]] += 1
+        return self.threads[index]
 
-    def add_edge(self, n1, n2, weight=1):
-        n1_node = n1.encode()
-        n2_node = n2.encode()
-        
-        # Update adjacency information
-        if n1_node not in self.adjacency:
-            self.adjacency[n1_node] = set()
-        if n2_node not in self.adjacency:
-            self.adjacency[n2_node] = set()
-        
-        self.adjacency[n1_node].add(n2_node)
-        self.adjacency[n2_node].add(n1_node)
-        
-        # N1 and N2 have no partition
-        if self.nodes[n1_node] is None:
-            self.nodes[n1_node] = self.__get_partition(n1)
-            self.send(Message(b'ADD_NODE', n1_node), *self.nodes[n1_node])
-        if self.nodes[n2_node] is None:
-            self.nodes[n2_node] = self.__get_partition(n2)
-            self.send(Message(b'ADD_NODE', n2_node), *self.nodes[n2_node])
-            
-        return self.send(Message(b'ADD_EDGE', f'{n1} {n2} {weight}'.encode()), 
-                        self.nodes[n1_node][0], self.nodes[n1_node][1])
+    def add_edge(self, src, dest, weight=1):
+        src_node = src.encode()
+        dest_node = dest.encode()
+        if self.nodes[src_node] is None:
+            self.nodes[src_node] = self.__get_partition(src_node)
+            self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
+        if self.nodes[dest_node] is None and self.nodes[src_node] is not None:
+            self.nodes[dest_node] = self.__get_partition(dest_node, self.nodes[src_node])
+            self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+        elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
+            self.nodes[dest_node] = self.__get_partition(dest_node)
+            self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+        return self.send(Message(b'ADD_EDGE', f'{src} {dest} {weight}'.encode()), *self.nodes[src_node])
+
 
     def get_edges(self, node, **kwargs):
         edges = []
+        visited = set()
         if node not in self.nodes:
             return None
         dfs = kwargs.get('dfs')
@@ -128,8 +97,11 @@ class Master:
             self.socket.sendto(Message(b'OK', b'').build(), addr)
             if msg.header == b'DONE':
                 break
-            edges.extend(msg.body.split(b'|'))
-        return edges
+            elif msg.header == b'VISITED':
+                visited.update({node for node in msg.body.split(b',')})
+            elif msg.header == b'EDGE': 
+                edges.extend(msg.body.split(b'|'))
+        return edges, visited
 
 
     def bfs(self, root):
@@ -138,12 +110,13 @@ class Master:
         root_node = root.encode()
         nodes = deque([Node(root_node)])
         bfs_tree = {}
+        visited = set()
 
         while nodes:
             node = nodes.popleft()
-            if self.send(Message(b'BFS', node.label), *self.nodes[node.label]).header == b'VISITED':
-                continue
-            edges = self.get_edges(node.label, bfs=True)
+            if node.label in visited: continue
+            edges, new_visited = self.get_edges(node.label, bfs=True)
+            visited.update(new_visited)
 
             if edges:
                 # if bfs_tree.get(node) is None: bfs_tree[node] = []
@@ -156,7 +129,7 @@ class Master:
                         bfs_tree[src_node] = []
                     if dest_node != src_node and bfs_tree.get(dest_node) is None:
                         # destinations.append(dest_node)
-                        nodes.append(dest_node)
+                        if dest_node.label not in visited: nodes.append(dest_node)
                         bfs_tree[src_node].append(Node(dest))
                         bfs_tree[dest_node] = []
                 # for d in destinations:
