@@ -88,18 +88,23 @@ class Master:
 
         while nodes:
             node = nodes.popleft()
+            if self.send(Message(b'BFS', node.label), *self.nodes[node.label]).header == b'VISITED':
+                continue
             edges = self.get_edges(node.label, bfs=True)
 
             if edges:
-                if bfs_tree.get(node) is None: bfs_tree[node] = []
+                # if bfs_tree.get(node) is None: bfs_tree[node] = []
                 for edge in edges:
                     if edge == b'': continue
-                    _, dest, _ = edge.split(b',')
+                    src, dest, _ = edge.split(b',')
+                    src_node = Node(src)
                     dest_node = Node(dest)
-                    if dest_node != node and bfs_tree.get(dest_node) is None:
+                    if bfs_tree.get(src_node) is None:
+                        bfs_tree[src_node] = []
+                    if dest_node != src_node and bfs_tree.get(dest_node) is None:
                         # destinations.append(dest_node)
                         nodes.append(dest_node)
-                        bfs_tree[node].append(Node(dest))
+                        bfs_tree[src_node].append(Node(dest))
                         bfs_tree[dest_node] = []
                 # for d in destinations:
                 #     if bfs_tree.get(d) is None:
