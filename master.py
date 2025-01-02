@@ -45,19 +45,29 @@ class Master:
         self.threads.append((ip, port))
 
     def add_node(self, node):
-        ip, port = self.__get_partition(node)
-        print(node, ip, port)
-        self.nodes[node.encode()] = (ip, port)
-        return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
+        # ip, port = self.__get_partition(node)
+        # print(node, ip, port)
+        # self.nodes[node.encode()] = (ip, port)
+        # return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
+        self.nodes[node.encode()] = None
 
     def add_edge(self, n1, n2, weight=1):
-        # return self.send({
-        #     'type': 'add_edge',
-        #     'node1': n1,
-        #     'node2': n2,
-        #     'weight': weight
-        # }, self.nodes[n1][0], self.nodes[n1][1])
         n1_node = n1.encode()
+        n2_node = n2.encode()
+        # N1 and N2 have no partition
+        if self.nodes[n1_node] is None and self.nodes[n2_node] is None:
+            self.nodes[n1_node] = self.__get_partition(n1)
+            self.nodes[n2_node] = self.nodes[n1_node]
+            print(self.nodes[n2_node])
+            self.send(Message(b'ADD_NODE', n1_node), *self.nodes[n1_node])
+            self.send(Message(b'ADD_NODE', n2_node), *self.nodes[n2_node])
+        elif self.nodes[n1_node] is None:
+            self.nodes[n1_node] = self.nodes[n2_node]
+            self.send(Message(b'ADD_NODE', n1_node), *self.nodes[n1_node])
+        elif self.nodes[n2_node] is None:
+            self.nodes[n2_node] = self.nodes[n1_node]
+            self.send(Message(b'ADD_NODE', n2_node), *self.nodes[n2_node])
+        # else: add on N1 partition
         return self.send(Message(b'ADD_EDGE', f'{n1} {n2} {weight}'.encode()), self.nodes[n1_node][0], self.nodes[n1_node][1])
 
     def get_edges(self, node, **kwargs):
