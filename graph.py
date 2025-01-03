@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 class Node:
     def __init__(self, label: bytes, attr=dict()):
         self.label = label

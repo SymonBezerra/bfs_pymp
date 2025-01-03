@@ -1,9 +1,8 @@
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import socket
 
-from graph import Edge, Node
+from graph import Edge
 from message import Message
 
 class Thread:
