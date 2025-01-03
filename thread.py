@@ -73,7 +73,6 @@ class Thread:
                 batch_count += 1
                 if batch_count == 100:
                     batch_count = 0
-                    print(self.bytes_buffer.getvalue())
                     self.socket.sendto(self.bytes_buffer.getvalue(), addr)
                     answer, _ = self.socket.recvfrom(1024)
                     if answer[:20].strip() != b'OK': break
