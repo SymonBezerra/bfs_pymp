@@ -27,7 +27,7 @@ class Master:
         self.threads = list()
         self.cache = dict()
 
-    def recv(self, bufsize=1024):
+    def recv(self, bufsize=65507):
         data, addr = self.socket.recvfrom(bufsize)
         # return json.loads(data.decode())
         return Message(data[:20].strip(), data[20:]), addr
@@ -35,7 +35,7 @@ class Master:
     def send(self, msg, ip, port):
         # `send` awaits for a confirmation message
         self.socket.sendto(msg.build(), (ip, int(port)))
-        data, _ = self.socket.recvfrom(1024)
+        data, _ = self.socket.recvfrom(65507)
         return Message(data[:20].strip(), data[20:].strip())
 
     def add_thread(self, ip, port):
@@ -93,7 +93,7 @@ class Master:
         elif bfs: header = b'GET_EDGES_BFS'
         self.socket.sendto(Message(header, node).build(), (self.nodes[node][0], self.nodes[node][1]))
         while True:
-            msg, addr = self.recv(8096)
+            msg, addr = self.recv(65507)
             self.socket.sendto(Message(b'OK', b'').build(), addr)
             if msg.header == b'DONE':
                 break
