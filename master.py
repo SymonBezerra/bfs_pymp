@@ -51,7 +51,7 @@ class Master:
 
     def __get_partition(self, node, neighbor=None):
         if neighbor:
-            if self.partition_loads[neighbor] >= len(self.threads):
+            if self.partition_loads[neighbor] >= len(self.nodes) // 2:
                 index = randint(0, len(self.threads) - 1)
                 while self.threads[index] == neighbor:
                     index = randint(0, len(self.threads) - 1)
@@ -61,7 +61,7 @@ class Master:
                 self.partition_loads[neighbor] += 1
                 return neighbor
         index = randint(0, len(self.threads) - 1)
-        while self.threads[index] == neighbor:
+        while self.threads[index] == neighbor or self.partition_loads[self.threads[index]] >= len(self.nodes) // 2:
             index = randint(0, len(self.threads) - 1)
         self.partition_loads[self.threads[index]] += 1
         return self.threads[index]
