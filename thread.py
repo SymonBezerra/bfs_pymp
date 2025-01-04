@@ -34,7 +34,7 @@ class Thread:
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
         elif header == b'ADD_EDGE':
-            n1, n2, weight = msg.body.split()
+            n1, n2, weight = msg.body.split(b'|')
             self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
