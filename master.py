@@ -45,6 +45,7 @@ class Master:
         buffers = {port: [] for port in self.threads}
 
         with open(path, 'r') as file:
+
             for line in file:
                 src, dest = line.strip().split(' ')
                 src_node = src.encode()
@@ -137,7 +138,8 @@ class Master:
             if msg.header == b'DONE':
                 break
             elif msg.header == b'VISITED':
-                visited.update({node for node in msg.body.split(b',')})
+                if msg.body == b'': continue
+                visited.update({node for node in msg.body.split(b',') if node != b''})
             elif msg.header == b'EDGE': 
                 edges.extend(msg.body.split(b'|'))
         return edges, visited

@@ -26,6 +26,7 @@ class Thread:
 
     def recv(self):
         data, addr = self.socket.recvfrom(65507)
+        print(data)
         msg = Message(data[:20].strip(), data[20:].strip())
         if msg.header == b'ADD_NODE':
             node = msg.body
@@ -62,9 +63,18 @@ class Thread:
             if msg.header == b'GET_EDGES_BFS': edges = self.bfs(node)
             else: edges = self.edges[node]
             self.bytes_buffer.write(b'VISITED'.ljust(20))
+            visited_batch_count = 0
             for visited in self.cache['visited']:
+                visited_batch_count += 1
                 self.bytes_buffer.write(visited)
                 self.bytes_buffer.write(b',')
+                if visited_batch_count == 500:
+                    visited_batch_count = 0
+                    self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+                    self.bytes_buffer.seek(0)
+                    self.bytes_buffer.truncate()
+                    self.bytes_buffer.write(b'VISITED'.ljust(20))
+
             self.socket.sendto(self.bytes_buffer.getvalue(), addr)
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
