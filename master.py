@@ -42,7 +42,8 @@ class Master:
         return Message(data[:20].strip(), data[20:].strip())
 
     def load_file(self, path):
-        buffers = {port: [] for port in self.threads}
+        edge_buffers = {port: [] for port in self.threads}
+        node_buffers = {port: [] for port in self.threads}
 
         with open(path, 'r') as file:
 
@@ -53,31 +54,54 @@ class Master:
 
                 if self.nodes[src_node] is None:
                     self.nodes[src_node] = self.__get_partition(src_node)
-                    self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
+                    # self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
+                    node_buffers[self.nodes[src_node]].append(f'{src}'.encode())
                 if self.nodes[dest_node] is None and self.nodes[src_node] is not None:
                     self.nodes[dest_node] = self.__get_partition(dest_node, self.nodes[src_node])
-                    self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+                    # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+                    node_buffers[self.nodes[src_node]].append(f'{dest}'.encode())
                 elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
                     self.nodes[dest_node] = self.__get_partition(dest_node)
-                    self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
-                buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
+                    # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+                    node_buffers[self.nodes[dest_node]].append(f'{dest}'.encode())
+                edge_buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
 
-        for port in buffers:
+        for node_port in node_buffers:
+            self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
+            batch_count = 0
+            for node in node_buffers[node_port]:
+                self.bytes_buffer.write(node)
+                self.bytes_buffer.write(b'|')
+                batch_count += 1
+                if batch_count == 500:
+                    self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
+                    self.socket.recv(65507)
+                    self.bytes_buffer.seek(0)
+                    self.bytes_buffer.truncate()
+                    self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
+                    batch_count = 0
+            if batch_count > 0:
+                self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
+                self.socket.recv(65507)
+                self.bytes_buffer.seek(0)
+                self.bytes_buffer.truncate()
+
+        for edge_port in edge_buffers:
             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
             batch_count = 0
-            for edge in buffers[port]:
+            for edge in edge_buffers[edge_port]:
                 self.bytes_buffer.write(edge)
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
                 if batch_count == 500:
-                    self.socket.sendto(self.bytes_buffer.getvalue(), port)
+                    self.socket.sendto(self.bytes_buffer.getvalue(), edge_port)
                     self.socket.recv(65507) # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
                     batch_count = 0
             if batch_count > 0:
-                self.socket.sendto(self.bytes_buffer.getvalue(), port)
+                self.socket.sendto(self.bytes_buffer.getvalue(), edge_port)
                 self.socket.recv(65507) # await confirmation
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
