@@ -11,4 +11,4 @@ client = Thread('0.0.0.0', args.port)
 if __name__ == '__main__':
     while True:
         data = client.recv()
-        print(data)
+        # print(data)

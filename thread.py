@@ -78,7 +78,7 @@ class Thread:
                 self.bytes_buffer.write(str(edge.weight).encode())
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
-                if batch_count == 100:
+                if batch_count == 500:
                     batch_count = 0
                     self.socket.sendto(self.bytes_buffer.getvalue(), addr)
                     answer, _ = self.socket.recvfrom(65507)
