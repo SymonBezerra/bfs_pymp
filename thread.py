@@ -26,7 +26,6 @@ class Thread:
 
     def recv(self):
         data, addr = self.socket.recvfrom(65507)
-        print(data)
         msg = Message(data[:20].strip(), data[20:].strip())
         if msg.header == b'ADD_NODE':
             node = msg.body
@@ -118,7 +117,6 @@ class Thread:
         nodes = deque([node])
         edges = []
         if node in self.cache['visited']:
-            print('visited')
             return edges
         while nodes:
             current = nodes.popleft()
