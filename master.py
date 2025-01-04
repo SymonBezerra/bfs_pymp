@@ -69,7 +69,6 @@ class Master:
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
                 if batch_count == 500:
-                    print(port)
                     self.socket.sendto(self.bytes_buffer.getvalue(), port)
                     self.socket.recv(65507) # await confirmation
                     self.bytes_buffer.seek(0)
