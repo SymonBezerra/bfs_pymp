@@ -1,4 +1,4 @@
-from collections import deque
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from random import randint
@@ -90,21 +90,36 @@ class Master:
         self.nodes[node.encode()] = None
 
     def __get_partition(self, node, neighbor=None):
+        # Get target load per partition
+        target_load = len(self.nodes) // len(self.threads)
+        
         if neighbor:
-            if self.partition_loads[neighbor] >= len(self.nodes) // 2:
-                index = randint(0, len(self.threads) - 1)
-                while self.threads[index] == neighbor:
-                    index = randint(0, len(self.threads) - 1)
-                self.partition_loads[self.threads[index]] += 1
-                return self.threads[index]
-            else:
+            # If neighbor partition isn't overloaded, prefer it for locality
+            if self.partition_loads[neighbor] < target_load:
                 self.partition_loads[neighbor] += 1
                 return neighbor
-        index = randint(0, len(self.threads) - 1)
-        while self.threads[index] == neighbor or self.partition_loads[self.threads[index]] >= len(self.nodes) // 2:
-            index = randint(0, len(self.threads) - 1)
-        self.partition_loads[self.threads[index]] += 1
-        return self.threads[index]
+            
+            # Find least loaded partition that isn't the neighbor
+            min_load = float('inf')
+            min_partition = None
+            for partition in self.threads:
+                if partition != neighbor and self.partition_loads[partition] < min_load:
+                    min_load = self.partition_loads[partition]
+                    min_partition = partition
+            
+            self.partition_loads[min_partition] += 1
+            return min_partition
+        
+        # No neighbor - assign to least loaded partition
+        min_load = float('inf')
+        min_partition = None
+        for partition in self.threads:
+            if self.partition_loads[partition] < min_load:
+                min_load = self.partition_loads[partition]
+                min_partition = partition
+                
+        self.partition_loads[min_partition] += 1
+        return min_partition
 
     def add_edge(self, src, dest, weight=1):
         src_node = src.encode()
@@ -150,7 +165,7 @@ class Master:
             self.send(Message(b'INIT_BFS', b''), *thread)
         root_node = root.encode()
         nodes = deque([Node(root_node)])
-        bfs_tree = {}
+        bfs_tree = defaultdict(list)
         visited = set()
 
         while nodes:
@@ -166,13 +181,14 @@ class Master:
                     src, dest, _ = edge.split(b',')
                     src_node = Node(src)
                     dest_node = Node(dest)
-                    if bfs_tree.get(src_node) is None:
-                        bfs_tree[src_node] = []
-                    if dest_node != src_node and bfs_tree.get(dest_node) is None:
+                    # if bfs_tree.get(src_node) is None:
+                    #     bfs_tree[src_node] = []
+                    if dest_node != src_node and dest_node not in bfs_tree:
                         # destinations.append(dest_node)
                         if dest_node.label not in visited: nodes.append(dest_node)
-                        bfs_tree[src_node].append(Node(dest))
-                        bfs_tree[dest_node] = []
+                        # bfs_tree[src_node].append(Node(dest))
+                        bfs_tree[src_node].append(dest_node)
+                        bfs_tree[dest_node] = list()
                 # for d in destinations:
                 #     if bfs_tree.get(d) is None:
                 #         bfs_tree[d] = []

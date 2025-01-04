@@ -114,17 +114,18 @@ class Thread:
         return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
     
     def bfs(self, node):
-        nodes = deque([node])
-        edges = []
         if node in self.cache['visited']:
-            return edges
+            return []
+        nodes = deque([node])
+        edges = list()
         while nodes:
             current = nodes.popleft()
             for edge in self.edges[current]:
-                if edge.dest not in self.cache['nodes_added']:
-                    if self.edges.get(edge.dest) is not None:
-                        nodes.append(edge.dest)
-                    self.cache['nodes_added'].add(edge.dest)
+                dest = edge.dest
+                if dest not in self.cache['nodes_added']:
+                    if self.edges.get(dest) is not None:
+                        nodes.append(dest)
+                    self.cache['nodes_added'].add(dest)
                     edges.append(edge)
             self.cache['visited'].add(current)
         return edges
