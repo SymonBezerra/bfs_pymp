@@ -27,39 +27,40 @@ class Thread:
     def recv(self):
         data, addr = self.socket.recvfrom(65507)
         msg = Message(data[:20].strip(), data[20:].strip())
-        if msg.header == b'ADD_NODE':
+        header = msg.header
+        if header == b'ADD_NODE':
             node = msg.body
             self.edges[node] = []  # Use label (bytes) as key
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
-        elif msg.header == b'ADD_EDGE':
+        elif header == b'ADD_EDGE':
             n1, n2, weight = msg.body.split()
             self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
-        elif msg.header == b'ADD_EDGES':
+        elif header == b'ADD_EDGES':
             edges = msg.body.split(b'|')
             for edge in edges:
                 if edge == b'': continue
                 n1, n2, weight = edge.split(b',')
                 self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
-        elif msg.header == b'INIT_BFS' or msg.header == b'INIT_DFS':
+        elif header == b'INIT_BFS' or header == b'INIT_DFS':
             self.cache['visited'] = set()
             self.cache['nodes_added'] = set()
             self.socket.sendto(Message(b'OK', b'').build(), addr)
-        elif msg.header == b'BFS' or msg.header == b'DFS':
+        elif header == b'BFS' or header == b'DFS':
             node = msg.body
             if node in self.cache['visited']:
                 self.socket.sendto(Message(b'VISITED', b'').build(), addr)
             else:
                 # self.cache['visited'].add(node)
                 self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
-        elif msg.header == b'GET_EDGES' or msg.header == b'GET_EDGES_BFS' or msg.header == b'GET_EDGES_DFS':
+        elif header == b'GET_EDGES' or header == b'GET_EDGES_BFS' or header == b'GET_EDGES_DFS':
             node = msg.body
 
             batch_count = 0
 
-            if msg.header == b'GET_EDGES_BFS': edges = self.bfs(node)
+            if header == b'GET_EDGES_BFS': edges = self.bfs(node)
             else: edges = self.edges[node]
             self.bytes_buffer.write(b'VISITED'.ljust(20))
             visited_batch_count = 0
@@ -102,7 +103,7 @@ class Thread:
             self.socket.recvfrom(1024) # await confirm65507n
             self.socket.sendto(Message(b'DONE', b'').build(), addr)
 
-        elif msg.header == b'VISIT_NODE':
+        elif header == b'VISIT_NODE':
             node = msg.body
             self.cache['visited'].add(node)
             self.socket.sendto(Message(b'OK', b'').build(), addr)
