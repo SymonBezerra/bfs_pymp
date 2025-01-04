@@ -138,7 +138,6 @@ class Master:
 
     def get_edges(self, node, **kwargs):
         edges = []
-        visited = set()
         if node not in self.nodes:
             return None
         dfs = kwargs.get('dfs')
@@ -152,48 +151,72 @@ class Master:
             self.socket.sendto(Message(b'OK', b'').build(), addr)
             if msg.header == b'DONE':
                 break
-            elif msg.header == b'VISITED':
-                if msg.body == b'': continue
-                visited.update({node for node in msg.body.split(b',') if node != b''})
             elif msg.header == b'EDGE': 
                 edges.extend(msg.body.split(b'|'))
-        return edges, visited
+        return edges
 
 
     def bfs(self, root):
         for thread in self.threads:
             self.send(Message(b'INIT_BFS', b''), *thread)
         root_node = root.encode()
-        nodes = deque([Node(root_node)])
+        nodes = deque([root_node])
         bfs_tree = defaultdict(list)
-        visited = set()
+        visited = deque()
 
+        # while nodes:
+        #     node = nodes.popleft()
+        #     if node.label in visited: continue
+        #     edges, new_visited = self.get_edges(node.label, bfs=True)
+        #     visited.update(new_visited)
+
+        #     if edges:
+        #         # if bfs_tree.get(node) is None: bfs_tree[node] = []
+        #         for edge in edges:
+        #             if edge == b'': continue
+        #             src, dest, _ = edge.split(b',')
+        #             src_node = Node(src)
+        #             dest_node = Node(dest)
+        #             # if bfs_tree.get(src_node) is None:
+        #             #     bfs_tree[src_node] = []
+        #             if dest_node != src_node and dest_node not in bfs_tree:
+        #                 # destinations.append(dest_node)
+        #                 if dest_node.label not in visited: nodes.append(dest_node)
+        #                 # bfs_tree[src_node].append(Node(dest))
+        #                 bfs_tree[src_node].append(dest_node)
+        #                 bfs_tree[dest_node] = list()
+        #         # for d in destinations:
+        #         #     if bfs_tree.get(d) is None:
+        #         #         bfs_tree[d] = []
+        #         #         nodes.append(d)
+        #         #         bfs_tree[node].append(d)
         while nodes:
-            node = nodes.popleft()
-            if node.label in visited: continue
-            edges, new_visited = self.get_edges(node.label, bfs=True)
-            visited.update(new_visited)
+            current = nodes.popleft()
+            self.socket.sendto(Message(b'BFS', current).build(), self.nodes[current])
+            while True:
+                msg, addr = self.recv(65507)
+                self.socket.sendto(Message(b'OK', b'').build(), addr)
+                if msg.header == b'DONE':
+                    break
+                elif msg.header == b'VISITED':
+                    new_nodes = [node for node in msg.body.split(b',') if node != b'']
+                    nodes.extend(new_nodes)
+                    visited.extend(new_nodes)
 
-            if edges:
-                # if bfs_tree.get(node) is None: bfs_tree[node] = []
-                for edge in edges:
-                    if edge == b'': continue
-                    src, dest, _ = edge.split(b',')
-                    src_node = Node(src)
-                    dest_node = Node(dest)
-                    # if bfs_tree.get(src_node) is None:
-                    #     bfs_tree[src_node] = []
-                    if dest_node != src_node and dest_node not in bfs_tree:
-                        # destinations.append(dest_node)
-                        if dest_node.label not in visited: nodes.append(dest_node)
-                        # bfs_tree[src_node].append(Node(dest))
-                        bfs_tree[src_node].append(dest_node)
-                        bfs_tree[dest_node] = list()
-                # for d in destinations:
-                #     if bfs_tree.get(d) is None:
-                #         bfs_tree[d] = []
-                #         nodes.append(d)
-                #         bfs_tree[node].append(d)
+
+        while visited:
+            node_src = visited.popleft()
+            edges = self.get_edges(node_src, bfs=True)
+            if not edges: continue
+            for edge in edges:
+                if edge == b'': continue
+                src, dest, _ = edge.split(b',')
+                src_node = Node(src)
+                dest_node = Node(dest)
+                if dest_node != src_node and dest_node not in bfs_tree:
+                    bfs_tree[src_node].append(dest_node)
+                    bfs_tree[dest_node] = list()
+                    # visited.append(dest_node.label)
 
         return bfs_tree
 
