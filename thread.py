@@ -11,7 +11,7 @@ class Thread:
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
         # Set high priority for network traffic
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
+        # self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
 
         # Set Type of Service (TOS) for QoS
         self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
