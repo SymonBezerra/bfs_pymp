@@ -1,5 +1,6 @@
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
 from random import randint
 import socket
 
@@ -21,6 +22,8 @@ class Master:
 
         self.partition_loads = {}  # Track node count per partition
 
+        self.bytes_buffer = BytesIO()
+
         # nodes → ip kept on server
         self.nodes = dict()
         # list[tuple] to keep track of all client threads
@@ -38,15 +41,52 @@ class Master:
         data, _ = self.socket.recvfrom(65507)
         return Message(data[:20].strip(), data[20:].strip())
 
+    def load_file(self, path):
+        buffers = {port: [] for port in self.threads}
+
+        with open(path, 'r') as file:
+            for line in file:
+                src, dest = line.strip().split(' ')
+                src_node = src.encode()
+                dest_node = dest.encode()
+
+                if self.nodes[src_node] is None:
+                    self.nodes[src_node] = self.__get_partition(src_node)
+                    self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
+                if self.nodes[dest_node] is None and self.nodes[src_node] is not None:
+                    self.nodes[dest_node] = self.__get_partition(dest_node, self.nodes[src_node])
+                    self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+                elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
+                    self.nodes[dest_node] = self.__get_partition(dest_node)
+                    self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+                buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
+
+        for port in buffers:
+            self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
+            batch_count = 0
+            for edge in buffers[port]:
+                self.bytes_buffer.write(edge)
+                self.bytes_buffer.write(b'|')
+                batch_count += 1
+                if batch_count == 500:
+                    print(port)
+                    self.socket.sendto(self.bytes_buffer.getvalue(), port)
+                    self.socket.recv(65507) # await confirmation
+                    self.bytes_buffer.seek(0)
+                    self.bytes_buffer.truncate()
+                    self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
+                    batch_count = 0
+            if batch_count > 0:
+                self.socket.sendto(self.bytes_buffer.getvalue(), port)
+                self.socket.recv(65507) # await confirmation
+                self.bytes_buffer.seek(0)
+                self.bytes_buffer.truncate()
+
     def add_thread(self, ip, port):
         self.threads.append((ip, port))
         self.partition_loads[(ip, port)] = 0
 
     def add_node(self, node):
-        # ip, port = self.__get_partition(node)
-        # print(node, ip, port)
-        # self.nodes[node.encode()] = (ip, port)
-        # return self.send(Message(b'ADD_NODE', node.encode()), ip, port)
         self.nodes[node.encode()] = None
 
     def __get_partition(self, node, neighbor=None):

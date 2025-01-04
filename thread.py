@@ -36,6 +36,13 @@ class Thread:
             n1, n2, weight = msg.body.split()
             self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
+        elif msg.header == b'ADD_EDGES':
+            edges = msg.body.split(b'|')
+            for edge in edges:
+                if edge == b'': continue
+                n1, n2, weight = edge.split(b',')
+                self.edges[n1].append(Edge(n1, n2, int(weight)))
+            self.socket.sendto(Message(b'OK', b'').build(), addr)
         elif msg.header == b'INIT_BFS' or msg.header == b'INIT_DFS':
             self.cache['visited'] = set()
             self.cache['nodes_added'] = set()
