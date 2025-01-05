@@ -51,15 +51,14 @@ class Master:
                 src, dest = line.strip().split(' ')
                 src_node = src.encode()
                 dest_node = dest.encode()
-
                 if self.nodes[src_node] is None:
                     self.nodes[src_node] = self.__get_partition(src_node)
                     # self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
                     node_buffers[self.nodes[src_node]].append(f'{src}'.encode())
-                if self.nodes[dest_node] is None and self.nodes[src_node] is not None:
+                elif self.nodes[dest_node] is None and self.nodes[src_node] is not None:
                     self.nodes[dest_node] = self.__get_partition(dest_node, self.nodes[src_node])
                     # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
-                    node_buffers[self.nodes[src_node]].append(f'{dest}'.encode())
+                    node_buffers[self.nodes[dest_node]].append(f'{dest}'.encode())
                 elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
                     self.nodes[dest_node] = self.__get_partition(dest_node)
                     # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
@@ -80,11 +79,10 @@ class Master:
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
                     batch_count = 0
-            if batch_count > 0:
-                self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-                self.socket.recv(65507)
-                self.bytes_buffer.seek(0)
-                self.bytes_buffer.truncate()
+            self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
+            self.socket.recv(65507)
+            self.bytes_buffer.seek(0)
+            self.bytes_buffer.truncate()
 
         for edge_port in edge_buffers:
             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
@@ -157,7 +155,7 @@ class Master:
         elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
             self.nodes[dest_node] = self.__get_partition(dest_node)
             self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
-        return self.send(Message(b'ADD_EDGE', f'{src} {dest} {weight}'.encode()), *self.nodes[src_node])
+        return self.send(Message(b'ADD_EDGE', f'{src},{dest},{weight}'.encode()), *self.nodes[src_node])
 
 
     def get_edges(self, node, **kwargs):
@@ -227,9 +225,11 @@ class Master:
                     nodes.extend(new_nodes)
                     visited.extend(new_nodes)
 
-
+        called = set()
         while visited:
             node_src = visited.popleft()
+            if node_src in called: continue
+            called.add(node_src)
             edges = self.get_edges(node_src, bfs=True)
             if not edges: continue
             for edge in edges:
@@ -240,7 +240,6 @@ class Master:
                 if dest_node != src_node and dest_node not in bfs_tree:
                     bfs_tree[src_node].append(dest_node)
                     bfs_tree[dest_node] = list()
-                    # visited.append(dest_node.label)
 
         return bfs_tree
 

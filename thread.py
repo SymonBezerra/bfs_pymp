@@ -34,7 +34,7 @@ class Thread:
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
         elif header == b'ADD_EDGE':
-            n1, n2, weight = msg.body.split(b'|')
+            n1, n2, weight = msg.body.split(b',')
             self.edges[n1].append(Edge(n1, n2, int(weight)))
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
@@ -47,7 +47,7 @@ class Thread:
             self.socket.sendto(Message(b'OK', b'').build(), addr)
 
         elif header == b'ADD_NODES':
-            nodes = msg.body.split(b',')
+            nodes = msg.body.split(b'|')
             for node in nodes:
                 if node == b'': continue
                 self.edges[node] = []
@@ -172,31 +172,44 @@ class Thread:
         return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
     
     def bfs(self, node):
-        # if node in self.cache['visited']:
-        #     return []
+        visited = deque()
+        if node in self.cache['visited']:
+            return []
+        nodes = deque([node])
+        while nodes:
+            current = nodes.popleft()
+            visited.append(current)
+            for edge in self.edges[current]:
+                src = edge.src
+                dest = edge.dest
+                if dest not in self.cache['nodes_added']:
+                    if self.edges.get(dest) is not None:
+                        nodes.append(dest)
+                    self.cache['nodes_added'].add(dest)
+                    self.cache['bfs_edges'][src].append(edge)
+                    visited.append(dest)
+            self.cache['visited'].add(current)
+        return visited
+        # visited = set()
         # nodes = deque([node])
-        # not_visited = set()
-        # edges = list()
+        # if node in self.cache['visited']:
+        #     return visited
+        # # for edge in self.edges[node]:
+        # #     src = edge.src
+        # #     dest = edge.dest
+        # #     if dest not in self.cache['nodes_added']:
+        # #         self.cache['nodes_added'].add(dest)
+        # #         self.cache['bfs_edges'][src].append(edge)
+        # #         visited.add(node)
         # while nodes:
         #     current = nodes.popleft()
+        #     visited.add(current)
+        #     if current not in self.edges or current in visited: continue
         #     for edge in self.edges[current]:
         #         src = edge.src
         #         dest = edge.dest
         #         if dest not in self.cache['nodes_added']:
-        #             if self.edges.get(dest) is not None:
-        #                 nodes.append(dest)
+        #             nodes.append(dest)
         #             self.cache['nodes_added'].add(dest)
         #             self.cache['bfs_edges'][src].append(edge)
-        #     self.cache['visited'].add(current)
-        # return not_visited
-        visited = set()
-        if node in self.cache['visited']:
-            return visited
-        for edge in self.edges[node]:
-            src = edge.src
-            dest = edge.dest
-            if dest not in self.cache['nodes_added']:
-                self.cache['nodes_added'].add(dest)
-                self.cache['bfs_edges'][src].append(edge)
-                visited.add(node)
-        return visited
+        # return visited
