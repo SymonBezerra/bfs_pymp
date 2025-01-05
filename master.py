@@ -163,7 +163,7 @@ class Master:
 
     def bfs(self, node):
         visited = set()
-        nodes = deque([node.encode()]) # deque[bytes]
+        nodes = [node]
         bfs_tree = defaultdict(list)
 
         for thread in self.threads:
