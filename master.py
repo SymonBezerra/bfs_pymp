@@ -173,36 +173,25 @@ class Master:
             current = nodes.popleft()
             if current in visited: continue
             self.socket.sendto(Message(b'BFS', current).build(), self.nodes[current])
-            # visited.add(current)
             while True:
                 msg, addr = self.recv(65507)
                 self.socket.sendto(Message(b'OK', b'').build(), addr)
                 if msg.header == b'DONE':
                     break
                 elif msg.header == b'NEW_NODES':
-                    new_nodes = [node for node in msg.body.split(b',') if node != b'']
-                    # if not new_nodes: break
-                    nodes.extend(new_nodes)
+                    new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
+                    for node_tuple in new_nodes:
+                        src, dest = node_tuple.split(b',')
+                        src_node, dest_node = Node(src), Node(dest)
+                        if src_node == dest_node and src_node not in bfs_tree:
+                            nodes.append(src)
+                        elif dest_node not in bfs_tree:
+                            bfs_tree[src_node].append(dest_node)
+                            bfs_tree[dest_node] = []
+                            nodes.append(dest)
                 elif msg.header == b'VISITED':
-                    visited_nodes = {node for node in msg.body.split(b',') if node != b''}
+                    visited_nodes = {node[0] for node in msg.body.split(b',') if node != b''}
                     visited.update(visited_nodes)
                 visited.add(current)
 
-        for node in self.nodes:
-            self.socket.sendto(Message(b'GET_EDGES_BFS', node).build(), self.nodes[node])
-            while True:
-                msg, addr = self.recv(65507)
-                self.socket.sendto(Message(b'OK', b'').build(), addr)
-                if msg.header == b'DONE':
-                    break
-                elif msg.header == b'EDGE':
-                    edges = msg.body.split(b'|')
-                    for edge in edges:
-                        if edge == b'': continue
-                        src, dest, _ = edge.split(b',')
-                        src_node = Node(src)
-                        dest_node = Node(dest)
-                        if dest_node not in bfs_tree:
-                            bfs_tree[dest_node] = []
-                            bfs_tree[src_node].append(dest_node)
         return bfs_tree

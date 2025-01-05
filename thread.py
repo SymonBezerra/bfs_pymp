@@ -71,12 +71,7 @@ class Thread:
             self.cache['search_edges'] = defaultdict(deque)
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'BFS' or header == b'DFS':
-            # node = msg.body
-            # if node in self.cache['visited']:
-            #     self.confirmation_socket.sendto(Message(b'VISITED', b'').build(), addr)
-            # else:
-            #     # self.cache['visited'].add(node)
-            #     self.confirmation_socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
+            self.cache['visited'] = set()
             node = msg.body
             if header == b'BFS': 
 
@@ -85,8 +80,10 @@ class Thread:
                 batch_count = 0
                 for visited in new_nodes:
                     batch_count += 1
-                    self.bytes_buffer.write(visited)
+                    self.bytes_buffer.write(visited[0])
                     self.bytes_buffer.write(b',')
+                    self.bytes_buffer.write(visited[1])
+                    self.bytes_buffer.write(b'|')
                     if batch_count == 500:
                         batch_count = 0
                         self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
@@ -153,29 +150,6 @@ class Thread:
             node = msg.body
             self.cache['visited'].add(node)
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
-        # return data
-
-    # def send(self, header, body, ip, port):
-    #     self.confirmation_socket.sendto(Message(header, body).build(), (ip, int(port)))
-    #     answer, address = self.socket.recvfrom(65507)
-    #     return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
-    
-    # def bfs(self, node):
-    #     if node in self.cache['visited']:
-    #         return []
-    #     nodes = deque([node])
-    #     edges = list()
-    #     while nodes:
-    #         current = nodes.popleft()
-    #         for edge in self.edges[current]:
-    #             dest = edge.dest
-    #             if dest not in self.cache['nodes_added']:
-    #                 if self.edges.get(dest) is not None:
-    #                     nodes.append(dest)
-    #                 self.cache['nodes_added'].add(dest)
-    #                 edges.append(edge)
-    #         self.cache['visited'].add(current)
-    #     return edges
 
     def bfs(self, node):
         if node in self.cache['visited']:
@@ -184,14 +158,27 @@ class Thread:
         new_nodes = deque()
         while nodes:
             current = nodes.popleft()
-            if current in self.cache['visited']: continue
-            if current in self.edges:
+            if current in self.cache['visited']: 
+                continue
+                
+            # Add this check
+            if current not in self.edges:
+                # This node belongs to another thread
+                # Still add it to visited to prevent cycles
+                # self.cache['visited'].add(current)
+                # Add it to new_nodes so master knows about it
+                new_nodes.append((current, current))
+                continue
+                
+            elif current in self.edges:
                 for edge in self.edges[current]:
+                    src = edge.src
                     dest = edge.dest
+                    nodes.append(src)
                     if dest not in self.cache['nodes_added']:
                         nodes.append(dest)
                         self.cache['nodes_added'].add(dest)
-                        self.cache['search_edges'][node].append(edge)
-                        new_nodes.append(dest)
-            self.cache['visited'].add(current)
+                        self.cache['search_edges'][src].append(edge)
+                        new_nodes.append((src, dest))
+                    self.cache['visited'].add(current)
         return new_nodes
