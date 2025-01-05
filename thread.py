@@ -68,7 +68,7 @@ class Thread:
         elif header == b'INIT_BFS' or header == b'INIT_DFS':
             self.cache['visited'] = set()
             self.cache['nodes_added'] = set()
-            self.cache['search_edges'] = defaultdict(list)
+            self.cache['search_edges'] = defaultdict(deque)
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'BFS' or header == b'DFS':
             # node = msg.body
@@ -79,10 +79,11 @@ class Thread:
             #     self.confirmation_socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
             node = msg.body
             if header == b'BFS': 
-                visited_nodes = self.bfs(node)
-                self.bytes_buffer.write(b'VISITED'.ljust(20))
+
+                new_nodes = self.bfs(node)
+                self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 batch_count = 0
-                for visited in visited_nodes:
+                for visited in new_nodes:
                     batch_count += 1
                     self.bytes_buffer.write(visited)
                     self.bytes_buffer.write(b',')
@@ -97,6 +98,26 @@ class Thread:
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
                 self.confirmation_socket.recvfrom(65507) # await confirmation
+
+                visited_nodes = self.cache['visited']
+                self.bytes_buffer.write(b'VISITED'.ljust(20))
+                batch_count = 0
+                for visited in visited_nodes:
+                    batch_count += 1
+                    self.bytes_buffer.write(visited)
+                    self.bytes_buffer.write(b',')
+                    if batch_count == 500:
+                        batch_count = 0
+                        self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
+                        self.confirmation_socket.recvfrom(65507)
+                        self.bytes_buffer.seek(0)
+                        self.bytes_buffer.truncate()
+                        self.bytes_buffer.write(b'VISITED'.ljust(20))
+                self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
+                self.confirmation_socket.recvfrom(65507) # await confirmation
+                self.bytes_buffer.seek(0)
+                self.bytes_buffer.truncate()
+
                 self.confirmation_socket.sendto(Message(b'DONE', b'').build(), addr)
         elif header == b'GET_EDGES' or header == b'GET_EDGES_BFS' or header == b'GET_EDGES_DFS':
             node = msg.body
@@ -160,9 +181,10 @@ class Thread:
         if node in self.cache['visited']:
             return []
         nodes = deque([node])
-        visited_nodes = deque()
+        new_nodes = deque()
         while nodes:
             current = nodes.popleft()
+            if current in self.cache['visited']: continue
             if current in self.edges:
                 for edge in self.edges[current]:
                     dest = edge.dest
@@ -170,5 +192,6 @@ class Thread:
                         nodes.append(dest)
                         self.cache['nodes_added'].add(dest)
                         self.cache['search_edges'][node].append(edge)
-                        visited_nodes.append(dest)
-        return visited_nodes
+                        new_nodes.append(dest)
+            self.cache['visited'].add(current)
+        return new_nodes

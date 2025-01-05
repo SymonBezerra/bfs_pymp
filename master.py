@@ -151,84 +151,23 @@ class Master:
         dest_node = dest.encode()
         if self.nodes[src_node] is None:
             self.nodes[src_node] = self.__get_partition(src_node)
-            self.send(Message(b'ADD_NODE', src_node), *self.nodes[src_node])
+            self.socket.sendto(Message(b'ADD_NODE', src_node).build(), self.nodes[src_node])
         if self.nodes[dest_node] is None and self.nodes[src_node] is not None:
             self.nodes[dest_node] = self.__get_partition(dest_node, self.nodes[src_node])
-            self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
+            self.socket.sendto(Message(b'ADD_NODE', dest_node).build(), self.nodes[dest_node])
         elif self.nodes[dest_node] is None and self.nodes[src_node] is None:
             self.nodes[dest_node] = self.__get_partition(dest_node)
-            self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
-        return self.send(Message(b'ADD_EDGE', f'{src} {dest} {weight}'.encode()), *self.nodes[src_node])
-
-
-    # def get_edges(self, node, **kwargs):
-    #     edges = []
-    #     visited = set()
-    #     if node not in self.nodes:
-    #         return None
-    #     dfs = kwargs.get('dfs')
-    #     bfs = kwargs.get('bfs')
-    #     header = b'GET_EDGES'
-    #     if dfs: header = b'GET_EDGES_DFS'
-    #     elif bfs: header = b'GET_EDGES_BFS'
-    #     self.socket.sendto(Message(header, node).build(), (self.nodes[node][0], self.nodes[node][1]))
-    #     while True:
-    #         msg, addr = self.recv(65507)
-    #         self.socket.sendto(Message(b'OK', b'').build(), addr)
-    #         if msg.header == b'DONE':
-    #             break
-    #         elif msg.header == b'VISITED':
-    #             if msg.body == b'': continue
-    #             visited.update({node for node in msg.body.split(b',') if node != b''})
-    #         elif msg.header == b'EDGE': 
-    #             edges.extend(msg.body.split(b'|'))
-    #     return edges, visited
-
-
-    # def bfs(self, root):
-    #     for thread in self.threads:
-    #         self.send(Message(b'INIT_BFS', b''), *thread)
-    #     root_node = root.encode()
-    #     nodes = deque([Node(root_node)])
-    #     bfs_tree = defaultdict(list)
-    #     visited = set()
-
-    #     while nodes:
-    #         node = nodes.popleft()
-    #         if node.label in visited: continue
-    #         edges, new_visited = self.get_edges(node.label, bfs=True)
-    #         visited.update(new_visited)
-
-    #         if edges:
-    #             # if bfs_tree.get(node) is None: bfs_tree[node] = []
-    #             for edge in edges:
-    #                 if edge == b'': continue
-    #                 src, dest, _ = edge.split(b',')
-    #                 src_node = Node(src)
-    #                 dest_node = Node(dest)
-    #                 # if bfs_tree.get(src_node) is None:
-    #                 #     bfs_tree[src_node] = []
-    #                 if dest_node != src_node and dest_node not in bfs_tree:
-    #                     # destinations.append(dest_node)
-    #                     if dest_node.label not in visited: nodes.append(dest_node)
-    #                     # bfs_tree[src_node].append(Node(dest))
-    #                     bfs_tree[src_node].append(dest_node)
-    #                     bfs_tree[dest_node] = list()
-    #             # for d in destinations:
-    #             #     if bfs_tree.get(d) is None:
-    #             #         bfs_tree[d] = []
-    #             #         nodes.append(d)
-    #             #         bfs_tree[node].append(d)
-
-    #     return bfs_tree
+            self.socket.sendto(Message(b'ADD_NODE', dest_node).build(), self.nodes[dest_node])
+        return self.socket.sendto(Message(b'ADD_EDGE', f'{src} {dest} {weight}'.encode()).build(), self.nodes[src_node])
 
 
     def bfs(self, node):
         visited = set()
         nodes = deque([node.encode()]) # deque[bytes]
+        bfs_tree = defaultdict(list)
 
         for thread in self.threads:
-            self.send(Message(b'INIT_BFS', b''), *thread)
+            self.socket.sendto(Message(b'INIT_BFS', b'').build(), thread)
 
         while nodes:
             current = nodes.popleft()
@@ -240,31 +179,30 @@ class Master:
                 self.socket.sendto(Message(b'OK', b'').build(), addr)
                 if msg.header == b'DONE':
                     break
-                elif msg.header == b'VISITED':
+                elif msg.header == b'NEW_NODES':
                     new_nodes = [node for node in msg.body.split(b',') if node != b'']
                     # if not new_nodes: break
                     nodes.extend(new_nodes)
+                elif msg.header == b'VISITED':
+                    visited_nodes = {node for node in msg.body.split(b',') if node != b''}
+                    visited.update(visited_nodes)
                 visited.add(current)
 
-                # elif msg.header == b'EDGE':
-                #     edges = msg.body.split(b'|')
-                #     for edge in edges:
-                #         src, dest, weight = edge.split(b',')
-                #         bfs_tree[src].append((dest, weight))
-                #         if dest not in visited:
-                #             nodes.append(dest)
-        # for node in self.nodes:
-        #     self.send(Message(b'GET_EDGES_BFS', node), *self.nodes[node])
-        #     while True:
-        #         msg, addr = self.recv(65507)
-        #         self.socket.sendto(Message(b'OK', b'').build(), addr)
-        #         print(msg.build())
-        #         if msg.header == b'DONE':
-        #             break
-        #         elif msg.header == b'EDGE':
-        #             edges = msg.body.split(b'|')
-        #             for edge in edges:
-        #                 if edge == b'': continue
-        #                 src, dest, weight = edge.split(b',')
-        #                 bfs_tree[src].append((dest, weight))
-        # return bfs_tree
+        for node in self.nodes:
+            self.socket.sendto(Message(b'GET_EDGES_BFS', node).build(), self.nodes[node])
+            while True:
+                msg, addr = self.recv(65507)
+                self.socket.sendto(Message(b'OK', b'').build(), addr)
+                if msg.header == b'DONE':
+                    break
+                elif msg.header == b'EDGE':
+                    edges = msg.body.split(b'|')
+                    for edge in edges:
+                        if edge == b'': continue
+                        src, dest, _ = edge.split(b',')
+                        src_node = Node(src)
+                        dest_node = Node(dest)
+                        if dest_node not in bfs_tree:
+                            bfs_tree[dest_node] = []
+                            bfs_tree[src_node].append(dest_node)
+        return bfs_tree
