@@ -6,17 +6,26 @@ from graph import Edge
 from message import Message
 
 class Thread:
-    def __init__(self, ip, port):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
-        # Set high priority for network traffic
-        # self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
+    def __init__(self, ip, port1, port2):
+        self.receiving_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.receiving_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        self.receiving_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
 
         # Set Type of Service (TOS) for QoS
-        self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
+        self.receiving_socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
 
-        self.socket.bind((ip, port))
+        self.receiving_socket.setblocking(False)
+
+        self.receiving_socket.bind((ip, port1))
+
+        self.confirmation_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.confirmation_socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
+        self.confirmation_socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+
+        # Set Type of Service (TOS) for QoS
+        self.confirmation_socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
+
+        self.confirmation_socket.bind((ip, port2))
 
         # adjacency list, source → destinies kept in the clients
         self.edges = dict()
@@ -25,42 +34,50 @@ class Thread:
         self.bytes_buffer = BytesIO()
 
     def recv(self):
-        data, addr = self.socket.recvfrom(65507)
-        msg = Message(data[:20].strip(), data[20:].strip())
+        try:
+            data, addr = self.receiving_socket.recvfrom(65507)
+            msg = Message(data[:20].strip(), data[20:].strip())
+            return msg, addr
+        except BlockingIOError:
+            return None, None
+
+    def exec(self, msg, addr):
+        # data, addr = self.socket.recvfrom(65507)
+        # msg = Message(data[:20].strip(), data[20:].strip())
         header = msg.header
         if header == b'ADD_NODE':
             node = msg.body
             self.edges[node] = []  # Use label (bytes) as key
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
 
         elif header == b'ADD_EDGE':
             n1, n2, weight = msg.body.split()
             self.edges[n1].append(Edge(n1, n2, int(weight)))
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'ADD_EDGES':
             edges = msg.body.split(b'|')
             for edge in edges:
                 if edge == b'': continue
                 n1, n2, weight = edge.split(b',')
                 self.edges[n1].append(Edge(n1, n2, int(weight)))
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'ADD_NODES':
             nodes = msg.body.split(b'|')
             for node in nodes:
                 if node == b'': continue
                 self.edges[node] = []
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'INIT_BFS' or header == b'INIT_DFS':
             self.cache['visited'] = set()
             self.cache['nodes_added'] = set()
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'BFS' or header == b'DFS':
             node = msg.body
             if node in self.cache['visited']:
-                self.socket.sendto(Message(b'VISITED', b'').build(), addr)
+                self.confirmation_socket.sendto(Message(b'VISITED', b'').build(), addr)
             else:
                 # self.cache['visited'].add(node)
-                self.socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
+                self.confirmation_socket.sendto(Message(b'NOT_VISITED', b'').build(), addr)
         elif header == b'GET_EDGES' or header == b'GET_EDGES_BFS' or header == b'GET_EDGES_DFS':
             node = msg.body
 
@@ -76,16 +93,19 @@ class Thread:
                 self.bytes_buffer.write(b',')
                 if visited_batch_count == 500:
                     visited_batch_count = 0
-                    self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+                    self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'VISITED'.ljust(20))
 
-            self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+            self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
             self.bytes_buffer.write(b'EDGE'.ljust(20))
-            self.socket.recvfrom(65507) # await confirmation
+            while True:
+                answer, _ = self.recv()
+                if answer: break
+
             for edge in edges:
                 self.bytes_buffer.write(edge.src)
                 self.bytes_buffer.write(b',')
@@ -96,27 +116,31 @@ class Thread:
                 batch_count += 1
                 if batch_count == 500:
                     batch_count = 0
-                    self.socket.sendto(self.bytes_buffer.getvalue(), addr)
-                    answer, _ = self.socket.recvfrom(65507)
+                    self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
+                    while True:
+                        answer, _ = self.recv()
+                        if answer: break
                     if answer[:20].strip() != b'OK': break
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'EDGE'.ljust(20))
 
-            self.socket.sendto(self.bytes_buffer.getvalue(), addr)
+            self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
-            self.socket.recvfrom(1024) # await confirm65507n
-            self.socket.sendto(Message(b'DONE', b'').build(), addr)
+            while True:
+                answer, _ = self.recv()
+                if answer: break
+            self.confirmation_socket.sendto(Message(b'DONE', b'').build(), addr)
 
         elif header == b'VISIT_NODE':
             node = msg.body
             self.cache['visited'].add(node)
-            self.socket.sendto(Message(b'OK', b'').build(), addr)
-        return data
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
+        # return data
 
     def send(self, header, body, ip, port):
-        self.socket.sendto(Message(header, body).build(), (ip, int(port)))
+        self.confirmation_socket.sendto(Message(header, body).build(), (ip, int(port)))
         answer, address = self.socket.recvfrom(65507)
         return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
     
