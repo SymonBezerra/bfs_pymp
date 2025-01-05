@@ -42,8 +42,6 @@ class Thread:
             return None, None
 
     def exec(self, msg, addr):
-        # data, addr = self.socket.recvfrom(65507)
-        # msg = Message(data[:20].strip(), data[20:].strip())
         header = msg.header
         if header == b'ADD_NODE':
             node = msg.body
@@ -102,9 +100,7 @@ class Thread:
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
             self.bytes_buffer.write(b'EDGE'.ljust(20))
-            while True:
-                answer, _ = self.recv()
-                if answer: break
+            self.confirmation_socket.recvfrom(65507) # await confirmation
 
             for edge in edges:
                 self.bytes_buffer.write(edge.src)
@@ -117,9 +113,7 @@ class Thread:
                 if batch_count == 500:
                     batch_count = 0
                     self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
-                    while True:
-                        answer, _ = self.recv()
-                        if answer: break
+                    answer, _ = self.confirmation_socket.recvfrom(65507)
                     if answer[:20].strip() != b'OK': break
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
@@ -128,9 +122,7 @@ class Thread:
             self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
-            while True:
-                answer, _ = self.recv()
-                if answer: break
+            self.confirmation_socket.recvfrom(1024) # await confirm65507n
             self.confirmation_socket.sendto(Message(b'DONE', b'').build(), addr)
 
         elif header == b'VISIT_NODE':
@@ -139,10 +131,10 @@ class Thread:
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         # return data
 
-    def send(self, header, body, ip, port):
-        self.confirmation_socket.sendto(Message(header, body).build(), (ip, int(port)))
-        answer, address = self.socket.recvfrom(65507)
-        return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
+    # def send(self, header, body, ip, port):
+    #     self.confirmation_socket.sendto(Message(header, body).build(), (ip, int(port)))
+    #     answer, address = self.socket.recvfrom(65507)
+    #     return Message(answer.decode()[:20].strip(), answer.decode()[20:].strip())
     
     def bfs(self, node):
         if node in self.cache['visited']:

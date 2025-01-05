@@ -28,6 +28,7 @@ class Master:
         self.nodes = dict()
         # list[tuple] to keep track of all client threads
         self.threads = list()
+
         self.cache = dict()
 
     def recv(self, bufsize=65507):
@@ -106,8 +107,9 @@ class Master:
                 self.bytes_buffer.truncate()
 
     def add_thread(self, ip, port):
-        self.threads.append((ip, port))
-        self.partition_loads[(ip, port)] = 0
+        thread = (ip, port)
+        self.threads.append(thread)
+        self.partition_loads[thread] = 0
 
     def add_node(self, node):
         self.nodes[node.encode()] = None
