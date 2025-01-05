@@ -71,18 +71,21 @@ class Thread:
             self.cache['search_edges'] = defaultdict(deque)
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'BFS' or header == b'DFS':
-            self.cache['visited'] = set()
+            # self.cache['visited'] = set()
             node = msg.body
             if header == b'BFS': 
 
-                new_nodes = self.bfs(node)
+                new_nodes, new_visited = self.bfs(node)
+                if not new_nodes and not new_visited:
+                    self.confirmation_socket.send(Message(b'DONE', b'').build(), addr)
+                    return
                 self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 batch_count = 0
-                for visited in new_nodes:
+                for nodes in new_nodes:
                     batch_count += 1
-                    self.bytes_buffer.write(visited[0])
+                    self.bytes_buffer.write(nodes[0])
                     self.bytes_buffer.write(b',')
-                    self.bytes_buffer.write(visited[1])
+                    self.bytes_buffer.write(nodes[1])
                     self.bytes_buffer.write(b'|')
                     if batch_count == 2000:
                         batch_count = 0
@@ -96,10 +99,9 @@ class Thread:
                 self.bytes_buffer.truncate()
                 self.confirmation_socket.recvfrom(65507) # await confirmation
 
-                visited_nodes = self.cache['visited']
                 self.bytes_buffer.write(b'VISITED'.ljust(20))
                 batch_count = 0
-                for visited in visited_nodes:
+                for visited in new_visited:
                     batch_count += 1
                     self.bytes_buffer.write(visited)
                     self.bytes_buffer.write(b',')
@@ -153,9 +155,10 @@ class Thread:
 
     def bfs(self, node):
         if node in self.cache['visited']:
-            return []
+            return [], {}
         nodes = deque([node])
         new_nodes = deque()
+        new_visited = set()
         while nodes:
             current = nodes.popleft()
             if current in self.cache['visited']: 
@@ -180,4 +183,5 @@ class Thread:
                         self.cache['search_edges'][src].append(edge)
                         new_nodes.append((src, dest))
                 self.cache['visited'].add(current)
-        return new_nodes
+                new_visited.add(current)
+        return new_nodes, new_visited
