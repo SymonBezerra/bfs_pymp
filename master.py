@@ -170,27 +170,67 @@ class Master:
             self.socket.sendto(Message(b'INIT_BFS', b'').build(), thread)
 
         while nodes:
-            current = nodes.popleft()
-            if current in visited: 
-                continue
-            self.socket.sendto(Message(b'BFS', current).build(), self.nodes[current])
-            while True:
-                msg, addr = self.recv(65507)
-                self.socket.sendto(Message(b'OK', b'').build(), addr)
-                if msg.header == b'DONE':
-                    break
-                elif msg.header == b'NEW_NODES':
-                    new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
-                    for node_tuple in new_nodes:
-                        src, dest = node_tuple.split(b',')
-                        src_node, dest_node = Node(src), Node(dest)
-                        if src_node == dest_node and src_node not in bfs_tree:
-                            nodes.append(src)
-                        elif dest_node not in bfs_tree:
-                            bfs_tree[src_node].append(dest_node)
-                            bfs_tree[dest_node] = []
-                            nodes.append(dest)
-                elif msg.header == b'VISITED':
-                    visited_nodes = {node for node in msg.body.split(b',') if node != b''}
-                    visited.update(visited_nodes)
+            batches = defaultdict(list)
+            for node in nodes:
+                if node not in visited: batches[self.nodes[node]].append(node)
+            nodes.clear()
+
+            for thread in batches:
+                batch_size = 0
+                self.bytes_buffer.write(b'BFS'.ljust(20))
+
+                for node in batches[thread]:
+                    self.bytes_buffer.write(node)
+                    self.bytes_buffer.write(b',')
+                    batch_size += 1
+
+                    if batch_size == 500:
+                        batch_size = 0
+                        self.socket.sendto(self.bytes_buffer.getvalue(), thread)
+                        self.bytes_buffer.seek(0)
+                        self.bytes_buffer.truncate()
+                        self.bytes_buffer.write(b'BFS'.ljust(20))
+
+                        while True:
+                            msg, addr = self.recv(65507)
+                            self.socket.sendto(Message(b'OK', b'').build(), addr)
+                            if msg.header == b'DONE':
+                                break
+                            elif msg.header == b'NEW_NODES':
+                                new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
+                                for node_tuple in new_nodes:
+                                    src, dest = node_tuple.split(b',')
+                                    src_node, dest_node = Node(src), Node(dest)
+                                    if src_node == dest_node and src_node not in bfs_tree:
+                                        nodes.append(src)
+                                    elif dest_node not in bfs_tree:
+                                        bfs_tree[src_node].append(dest_node)
+                                        bfs_tree[dest_node] = []
+                                        nodes.append(dest)
+                            elif msg.header == b'VISITED':
+                                visited_nodes = {node for node in msg.body.split(b',') if node != b''}
+                                visited.update(visited_nodes)
+
+                self.socket.sendto(self.bytes_buffer.getvalue(), thread)
+                self.bytes_buffer.seek(0)
+                self.bytes_buffer.truncate()
+                while True:
+                    msg, addr = self.recv(65507)
+                    self.socket.sendto(Message(b'OK', b'').build(), addr)
+                    if msg.header == b'DONE':
+                        break
+                    elif msg.header == b'NEW_NODES':
+                        new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
+                        for node_tuple in new_nodes:
+                            src, dest = node_tuple.split(b',')
+                            src_node, dest_node = Node(src), Node(dest)
+                            if src_node == dest_node and src_node not in bfs_tree:
+                                nodes.append(src)
+                            elif dest_node not in bfs_tree:
+                                bfs_tree[src_node].append(dest_node)
+                                bfs_tree[dest_node] = []
+                                nodes.append(dest)
+                    elif msg.header == b'VISITED':
+                        visited_nodes = {node for node in msg.body.split(b',') if node != b''}
+                        visited.update(visited_nodes)
         return bfs_tree

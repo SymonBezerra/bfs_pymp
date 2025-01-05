@@ -72,10 +72,10 @@ class Thread:
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
         elif header == b'BFS' or header == b'DFS':
             # self.cache['visited'] = set()
-            node = msg.body
-            if header == b'BFS': 
+            nodes = [node for node in msg.body.split(b',') if node != b'' and node not in self.cache['visited']]
+            if header == b'BFS':
 
-                new_nodes, new_visited = self.bfs(node)
+                new_nodes, new_visited = self.bfs(nodes)
                 if not new_nodes and not new_visited:
                     self.confirmation_socket.send(Message(b'DONE', b'').build(), addr)
                     return
@@ -153,14 +153,14 @@ class Thread:
             self.cache['visited'].add(node)
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
 
-    def bfs(self, node):
-        if node in self.cache['visited']:
-            return [], {}
-        nodes = deque([node])
+    def bfs(self, nodes):
+        # if node in self.cache['visited']:
+        #     return [], {}
+        batch = deque(nodes)
         new_nodes = deque()
         new_visited = set()
-        while nodes:
-            current = nodes.popleft()
+        while batch:
+            current = batch.popleft()
             if current in self.cache['visited']: 
                 continue
             # Add this check
@@ -176,9 +176,9 @@ class Thread:
                 for edge in self.edges[current]:
                     src = edge.src
                     dest = edge.dest
-                    nodes.append(src)
+                    batch.append(src)
                     if dest not in self.cache['nodes_added']:
-                        nodes.append(dest)
+                        batch.append(dest)
                         self.cache['nodes_added'].add(dest)
                         self.cache['search_edges'][src].append(edge)
                         new_nodes.append((src, dest))
