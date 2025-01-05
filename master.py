@@ -171,7 +171,8 @@ class Master:
 
         while nodes:
             current = nodes.popleft()
-            if current in visited: continue
+            if current in visited: 
+                continue
             self.socket.sendto(Message(b'BFS', current).build(), self.nodes[current])
             while True:
                 msg, addr = self.recv(65507)
@@ -190,8 +191,6 @@ class Master:
                             bfs_tree[dest_node] = []
                             nodes.append(dest)
                 elif msg.header == b'VISITED':
-                    visited_nodes = {node[0] for node in msg.body.split(b',') if node != b''}
+                    visited_nodes = {node for node in msg.body.split(b',') if node != b''}
                     visited.update(visited_nodes)
-                visited.add(current)
-
         return bfs_tree

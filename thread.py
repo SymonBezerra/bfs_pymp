@@ -84,13 +84,13 @@ class Thread:
                     self.bytes_buffer.write(b',')
                     self.bytes_buffer.write(visited[1])
                     self.bytes_buffer.write(b'|')
-                    if batch_count == 500:
+                    if batch_count == 2000:
                         batch_count = 0
                         self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
                         self.confirmation_socket.recvfrom(65507) # await confirmation
                         self.bytes_buffer.seek(0)
                         self.bytes_buffer.truncate()
-                        self.bytes_buffer.write(b'VISITED'.ljust(20))
+                        self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
@@ -103,7 +103,7 @@ class Thread:
                     batch_count += 1
                     self.bytes_buffer.write(visited)
                     self.bytes_buffer.write(b',')
-                    if batch_count == 500:
+                    if batch_count == 2000:
                         batch_count = 0
                         self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
                         self.confirmation_socket.recvfrom(65507)
@@ -160,16 +160,15 @@ class Thread:
             current = nodes.popleft()
             if current in self.cache['visited']: 
                 continue
-                
             # Add this check
-            if current not in self.edges:
+            elif current not in self.edges:
                 # This node belongs to another thread
                 # Still add it to visited to prevent cycles
                 # self.cache['visited'].add(current)
                 # Add it to new_nodes so master knows about it
                 new_nodes.append((current, current))
                 continue
-                
+
             elif current in self.edges:
                 for edge in self.edges[current]:
                     src = edge.src
@@ -180,5 +179,5 @@ class Thread:
                         self.cache['nodes_added'].add(dest)
                         self.cache['search_edges'][src].append(edge)
                         new_nodes.append((src, dest))
-                    self.cache['visited'].add(current)
+                self.cache['visited'].add(current)
         return new_nodes
