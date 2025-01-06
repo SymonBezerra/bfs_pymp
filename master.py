@@ -1,17 +1,27 @@
-from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
 from io import BytesIO
-from random import randint
+import logging
 import socket
 
 from message import Message
 from graph import Node
+
+LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+LOGGER.addHandler(console_handler)
 
 class Master:
     def __init__(self, ip, port):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+
+        self.socket.settimeout(5.0)
         # Set high priority for network traffic
         # self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
 
@@ -67,7 +77,7 @@ class Master:
                     node_buffers[self.nodes[dest_node]].append(dest_node)
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
         for node_port in node_buffers:
-            print(node_port)
+            LOGGER.info(f'Sending nodes to {node_port}')
             self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
             node_batch = 0
             for node in node_buffers[node_port]:
@@ -76,17 +86,18 @@ class Master:
                 node_batch += 1
                 if node_batch == 500:
                     self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-                    self.socket.recv(65507)
+                    self.socket.recvfrom(65507)
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
                     node_batch = 0
             self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-            self.socket.recv(65507)
+            self.socket.recvfrom(65507)
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
 
         for port in buffers:
+            LOGGER.info(f'Sending edges to {port}')
             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
             batch_count = 0
             for edge in buffers[port]:
@@ -95,16 +106,15 @@ class Master:
                 batch_count += 1
                 if batch_count == 500:
                     self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                    self.socket.recv(65507) # await confirmation
+                    self.socket.recvfrom(65507) # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
                     batch_count = 0
-            if batch_count > 0:
-                self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                self.socket.recv(65507) # await confirmation
-                self.bytes_buffer.seek(0)
-                self.bytes_buffer.truncate()
+            self.socket.sendto(self.bytes_buffer.getvalue(), port)
+            self.socket.recvfrom(65507) # await confirmation
+            self.bytes_buffer.seek(0)
+            self.bytes_buffer.truncate()
 
     def add_thread(self, ip, port):
         thread = (ip, port)
