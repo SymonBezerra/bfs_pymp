@@ -245,3 +245,9 @@ class Master:
                         visited_nodes = {node for node in msg.body.split(b',') if node != b''}
                         visited.update(visited_nodes)
         return bfs_tree
+
+    def restart_threads(self):
+        self.nodes.clear()
+        for thread in self.threads:
+            self.socket.sendto(Message(b'RESTART', b'').build(), thread)
+            self.recv()

@@ -43,7 +43,12 @@ class Thread:
 
     def exec(self, msg, addr):
         header = msg.header
-        if header == b'ADD_NODE':
+        if header == b'RESTART':
+            self.edges.clear()
+            self.cache.clear()
+            self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)
+
+        elif header == b'ADD_NODE':
             node = msg.body
             self.edges[node] = []  # Use label (bytes) as key
             self.confirmation_socket.sendto(Message(b'OK', b'').build(), addr)

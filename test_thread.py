@@ -1,10 +1,8 @@
 import argparse
 from collections import deque
-import errno
 import logging
 import threading
 import select
-import socket
 import time
 
 from thread import Thread
