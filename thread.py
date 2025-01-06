@@ -77,7 +77,7 @@ class Thread:
 
                 new_nodes, new_visited = self.bfs(nodes)
                 if not new_nodes and not new_visited:
-                    self.confirmation_socket.send(Message(b'DONE', b'').build(), addr)
+                    self.confirmation_socket.sendto(Message(b'DONE', b'').build(), addr)
                     return
                 self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 batch_count = 0
