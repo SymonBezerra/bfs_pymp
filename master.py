@@ -163,7 +163,8 @@ class Master:
 
     def bfs(self, node):
         visited = set()
-        nodes = [node]
+        root_node = node.encode()
+        nodes = [root_node]
         bfs_tree = defaultdict(list)
 
         for thread in self.threads:
@@ -171,8 +172,8 @@ class Master:
 
         while nodes:
             batches = defaultdict(list)
-            for node in nodes:
-                if node not in visited: batches[self.nodes[node]].append(node)
+            for n in nodes:
+                if n not in visited: batches[self.nodes[n]].append(n)
             nodes.clear()
 
             for thread in batches:
