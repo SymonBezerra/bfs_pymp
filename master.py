@@ -23,6 +23,10 @@ class Master:
 
         self.socket = self.context.socket(zmq.REQ)
         self.socket.bind(f'tcp://{ip}:{port}')
+        self.socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
+        self.socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
         self.partition_loads = {}  # Track node count per partition
 
@@ -97,6 +101,10 @@ class Master:
         self.partition_loads[thread] = 0
         socket = self.context.socket(zmq.REQ)
         socket.connect(f'tcp://{ip}:{port}')
+        socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
+        socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+        socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
         self.threads[thread] = socket
 
     def add_node(self, node):
@@ -232,5 +240,6 @@ class Master:
     def restart_threads(self):
         self.nodes.clear()
         for thread in self.threads:
-            self.socket.sendto(Message(b'RESTART', b'').build(), thread)
-            self.recv()
+            socket = self.threads[thread]
+            socket.send(Message(b'RESTART', b'').build())
+            socket.recv()

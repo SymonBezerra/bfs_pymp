@@ -13,6 +13,10 @@ class Thread:
         self.socket = self.context.socket(zmq.REP)
 
         self.socket.bind(f'tcp://{ip}:{port}')
+        self.socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
+        self.socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
         self.socket.connect(f'tcp://{master_ip}:{master_port}')
 
         # adjacency list, source → destinies kept in the clients
