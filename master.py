@@ -72,7 +72,7 @@ class Master:
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
 
         for port in buffers:
-            self.socket.connect(f'tcp://{port[0]}:{port[1]}')
+            socket = self.threads[port]
             LOGGER.info(f'Sending edges to {port}')
             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
             batch_count = 0
@@ -81,17 +81,16 @@ class Master:
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
                 if batch_count == 500:
-                    self.socket.send(self.bytes_buffer.getvalue())
-                    self.socket.recv() # await confirmation
+                    socket.send(self.bytes_buffer.getvalue())
+                    socket.recv() # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
                     batch_count = 0
-            self.socket.send(self.bytes_buffer.getvalue())
-            self.socket.recv() # await confirmation
+            socket.send(self.bytes_buffer.getvalue())
+            socket.recv() # await confirmation
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
-            self.socket.disconnect(f'tcp://{port[0]}:{port[1]}')
 
     def add_thread(self, ip, port):
         thread = (ip, port)
@@ -157,11 +156,9 @@ class Master:
         bfs_tree = defaultdict(list)
 
         for thread in self.threads:
-            with self.context.socket(zmq.REQ) as socket:
-                socket.connect(f'tcp://{thread[0]}:{thread[1]}')
-                socket.send(Message(b'INIT_BFS', b'').build())
-                socket.recv() # await confirmation
-                socket.close()
+            socket = self.threads[thread]
+            socket.send(Message(b'INIT_BFS', b'').build())
+            socket.recv() # await confirmation
 
         while nodes:
             batches = defaultdict(list)
