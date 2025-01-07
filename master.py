@@ -76,25 +76,36 @@ class Master:
                     # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
                     node_buffers[self.nodes[dest_node]].append(dest_node)
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
-        for node_port in node_buffers:
-            LOGGER.info(f'Sending nodes to {node_port}')
-            self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
-            node_batch = 0
-            for node in node_buffers[node_port]:
-                self.bytes_buffer.write(node)
-                self.bytes_buffer.write(b'|')
-                node_batch += 1
-                if node_batch == 500:
-                    self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-                    self.socket.recvfrom(65507)
-                    self.bytes_buffer.seek(0)
-                    self.bytes_buffer.truncate()
-                    self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
-                    node_batch = 0
-            self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-            self.socket.recvfrom(65507)
-            self.bytes_buffer.seek(0)
-            self.bytes_buffer.truncate()
+        # for node_port in node_buffers:
+        #     LOGGER.info(f'Sending nodes to {node_port}')
+        #     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
+        #     node_batch = 0
+        #     for node in node_buffers[node_port]:
+        #         self.bytes_buffer.write(node)
+        #         self.bytes_buffer.write(b'|')
+        #         node_batch += 1
+        #         if node_batch == 500:
+        #             while True:
+        #                 try:
+        #                     self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
+        #                     self.socket.recvfrom(65507)
+        #                     self.bytes_buffer.seek(0)
+        #                     self.bytes_buffer.truncate()
+        #                     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
+        #                     node_batch = 0
+        #                     break
+        #                 except:
+        #                     continue
+        #     while True:
+        #         try:
+        #             self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
+        #             self.socket.recvfrom(65507)
+        #             self.bytes_buffer.seek(0)
+        #             self.bytes_buffer.truncate()
+        #             self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
+        #             node_batch = 0
+        #             break
+        #         except: continue
 
         for port in buffers:
             LOGGER.info(f'Sending edges to {port}')
@@ -105,16 +116,24 @@ class Master:
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
                 if batch_count == 500:
+                    while True:
+                        try:
+                            self.socket.sendto(self.bytes_buffer.getvalue(), port)
+                            self.socket.recvfrom(65507) # await confirmation
+                            self.bytes_buffer.seek(0)
+                            self.bytes_buffer.truncate()
+                            self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
+                            batch_count = 0
+                            break
+                        except: continue
+            while True:
+                try:
                     self.socket.sendto(self.bytes_buffer.getvalue(), port)
                     self.socket.recvfrom(65507) # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
-                    self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
-                    batch_count = 0
-            self.socket.sendto(self.bytes_buffer.getvalue(), port)
-            self.socket.recvfrom(65507) # await confirmation
-            self.bytes_buffer.seek(0)
-            self.bytes_buffer.truncate()
+                    break
+                except: continue
 
     def add_thread(self, ip, port):
         thread = (ip, port)
@@ -127,13 +146,13 @@ class Master:
     def __get_partition(self, node, neighbor=None):
         # Get target load per partition
         target_load = len(self.nodes) // len(self.threads)
-        
+
         if neighbor:
             # If neighbor partition isn't overloaded, prefer it for locality
             if self.partition_loads[neighbor] < target_load:
                 self.partition_loads[neighbor] += 1
                 return neighbor
-            
+
             # Find least loaded partition that isn't the neighbor
             min_load = float('inf')
             min_partition = None
@@ -141,10 +160,10 @@ class Master:
                 if partition != neighbor and self.partition_loads[partition] < min_load:
                     min_load = self.partition_loads[partition]
                     min_partition = partition
-            
+
             self.partition_loads[min_partition] += 1
             return min_partition
-        
+
         # No neighbor - assign to least loaded partition
         min_load = float('inf')
         min_partition = None
@@ -152,7 +171,7 @@ class Master:
             if self.partition_loads[partition] < min_load:
                 min_load = self.partition_loads[partition]
                 min_partition = partition
-                
+
         self.partition_loads[min_partition] += 1
         return min_partition
 

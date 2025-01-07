@@ -28,7 +28,7 @@ class Thread:
         self.confirmation_socket.bind((ip, port2))
 
         # adjacency list, source → destinies kept in the clients
-        self.edges = dict()
+        self.edges = defaultdict(list)
         # cache buffer to keep track of visited nodess
         self.cache = dict()
         self.bytes_buffer = BytesIO()

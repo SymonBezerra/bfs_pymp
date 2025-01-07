@@ -67,6 +67,7 @@ if __name__ == '__main__':
             except Exception as e:
                 LOGGER.error(f"Error in executor: {e}")
                 time.sleep(0.1)
+                raise e
 
     # Start threads
     recv_thread = threading.Thread(target=recv)
