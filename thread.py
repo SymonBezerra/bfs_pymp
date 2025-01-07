@@ -35,7 +35,7 @@ class Thread:
 
     def recv(self):
         try:
-            data, addr = self.receiving_socket.recvfrom(65507)
+            data, addr = self.receiving_socket.recvfrom(32768)
             msg = Message(data[:20].strip(), data[20:].strip())
             return msg, addr
         except BlockingIOError:
@@ -92,17 +92,17 @@ class Thread:
                     self.bytes_buffer.write(b',')
                     self.bytes_buffer.write(nodes[1])
                     self.bytes_buffer.write(b'|')
-                    if batch_count == 2000:
+                    if batch_count == 500:
                         batch_count = 0
                         self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
-                        self.confirmation_socket.recvfrom(65507) # await confirmation
+                        self.confirmation_socket.recvfrom(32768) # await confirmation
                         self.bytes_buffer.seek(0)
                         self.bytes_buffer.truncate()
                         self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
-                self.confirmation_socket.recvfrom(65507) # await confirmation
+                self.confirmation_socket.recvfrom(32768) # await confirmation
 
                 self.bytes_buffer.write(b'VISITED'.ljust(20))
                 batch_count = 0
@@ -110,15 +110,15 @@ class Thread:
                     batch_count += 1
                     self.bytes_buffer.write(visited)
                     self.bytes_buffer.write(b',')
-                    if batch_count == 2000:
+                    if batch_count == 500:
                         batch_count = 0
                         self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
-                        self.confirmation_socket.recvfrom(65507)
+                        self.confirmation_socket.recvfrom(32768)
                         self.bytes_buffer.seek(0)
                         self.bytes_buffer.truncate()
                         self.bytes_buffer.write(b'VISITED'.ljust(20))
                 self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
-                self.confirmation_socket.recvfrom(65507) # await confirmation
+                self.confirmation_socket.recvfrom(32768) # await confirmation
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
 
@@ -142,7 +142,7 @@ class Thread:
                 if batch_count == 500:
                     batch_count = 0
                     self.confirmation_socket.sendto(self.bytes_buffer.getvalue(), addr)
-                    answer, _ = self.confirmation_socket.recvfrom(65507)
+                    answer, _ = self.confirmation_socket.recvfrom(32768)
                     if answer[:20].strip() != b'OK': break
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()

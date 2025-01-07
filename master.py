@@ -41,7 +41,7 @@ class Master:
 
         self.cache = dict()
 
-    def recv(self, bufsize=65507):
+    def recv(self, bufsize=32768):
         data, addr = self.socket.recvfrom(bufsize)
         # return json.loads(data.decode())
         return Message(data[:20].strip(), data[20:]), addr
@@ -49,7 +49,7 @@ class Master:
     def send(self, msg, ip, port):
         # `send` awaits for a confirmation message
         self.socket.sendto(msg.build(), (ip, int(port)))
-        data, _ = self.socket.recvfrom(65507)
+        data, _ = self.socket.recvfrom(32768)
         return Message(data[:20].strip(), data[20:].strip())
 
     def load_file(self, path):
@@ -88,7 +88,7 @@ class Master:
         #             while True:
         #                 try:
         #                     self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-        #                     self.socket.recvfrom(65507)
+        #                     self.socket.recvfrom(32768)
         #                     self.bytes_buffer.seek(0)
         #                     self.bytes_buffer.truncate()
         #                     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
@@ -99,7 +99,7 @@ class Master:
         #     while True:
         #         try:
         #             self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-        #             self.socket.recvfrom(65507)
+        #             self.socket.recvfrom(32768)
         #             self.bytes_buffer.seek(0)
         #             self.bytes_buffer.truncate()
         #             self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
@@ -119,7 +119,7 @@ class Master:
                     while True:
                         try:
                             self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                            self.socket.recvfrom(65507) # await confirmation
+                            self.socket.recvfrom(32768) # await confirmation
                             self.bytes_buffer.seek(0)
                             self.bytes_buffer.truncate()
                             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
@@ -129,7 +129,7 @@ class Master:
             while True:
                 try:
                     self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                    self.socket.recvfrom(65507) # await confirmation
+                    self.socket.recvfrom(32768) # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     break
@@ -214,7 +214,7 @@ class Master:
                     self.bytes_buffer.write(b',')
                     batch_size += 1
 
-                    if batch_size == 500:
+                    if batch_size == 250:
                         batch_size = 0
                         self.socket.sendto(self.bytes_buffer.getvalue(), thread)
                         self.bytes_buffer.seek(0)
@@ -222,7 +222,7 @@ class Master:
                         self.bytes_buffer.write(b'BFS'.ljust(20))
 
                         while True:
-                            msg, addr = self.recv(65507)
+                            msg, addr = self.recv(32768)
                             self.socket.sendto(Message(b'OK', b'').build(), addr)
                             if msg.header == b'DONE':
                                 break
@@ -245,7 +245,7 @@ class Master:
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
                 while True:
-                    msg, addr = self.recv(65507)
+                    msg, addr = self.recv(32768)
                     self.socket.sendto(Message(b'OK', b'').build(), addr)
                     if msg.header == b'DONE':
                         break
