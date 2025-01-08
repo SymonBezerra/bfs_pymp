@@ -65,7 +65,7 @@ class Thread:
                 if edge == b'': continue
                 n1, n2, weight = edge.split(b',')
                 self.edges[n1].append(Edge(n1, n2, int(weight)))
-            self.socket.send(Message(b'OK', b'').build())
+            self.push_socket.send(Message(b'OK', b'').build())
         elif header == b'ADD_NODES':
             nodes = msg.body.split(b'|')
             for node in nodes:

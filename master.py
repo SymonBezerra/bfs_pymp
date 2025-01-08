@@ -84,7 +84,7 @@ class Master:
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
 
         for port in buffers:
-            socket = self.threads[port]
+            push_socket = self.push_sockets[port]
             LOGGER.info(f'Sending edges to {port}')
             self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
             batch_count = 0
@@ -93,14 +93,14 @@ class Master:
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
                 if batch_count == 500:
-                    socket.send(self.bytes_buffer.getvalue())
-                    socket.recv() # await confirmation
+                    push_socket.send(self.bytes_buffer.getvalue())
+                    self.pull_socket.recv() # await confirmation
                     self.bytes_buffer.seek(0)
                     self.bytes_buffer.truncate()
                     self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
                     batch_count = 0
-            socket.send(self.bytes_buffer.getvalue())
-            socket.recv() # await confirmation
+            push_socket.send(self.bytes_buffer.getvalue())
+            self.pull_socket.recv() # await confirmation
             self.bytes_buffer.seek(0)
             self.bytes_buffer.truncate()
 
