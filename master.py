@@ -47,16 +47,16 @@ class Master:
 
         self.cache = dict()
 
-    # def recv(self):
-    #     data, addr = self.socket.recv()
-    #     # return json.loads(data.decode())
-    #     return Message(data[:20].strip(), data[20:]), addr
+        self.__opt = {
+            'node_batch': 500,
+            'edge_batch': 500
+        }
 
-    # def send(self, msg, ip, port):
-    #     # `send` awaits for a confirmation message
-    #     self.socket.sendto(msg.build(), (ip, int(port)))
-    #     data, _ = self.socket.recvfrom()
-    #     return Message(data[:20].strip(), data[20:].strip())
+    def set_opt(self, opt, value):
+        try:
+            self.__opt[opt] = value
+        except KeyError:
+            raise ValueError(f"Invalid option: {opt}")
 
     def load_file(self, path):
         buffers = {port: [] for port in self.threads}
@@ -92,7 +92,7 @@ class Master:
                 self.bytes_buffer.write(edge)
                 self.bytes_buffer.write(b'|')
                 batch_count += 1
-                if batch_count == 500:
+                if batch_count == self.__opt['edge_batch']:
                     push_socket.send(self.bytes_buffer.getvalue())
                     self.pull_socket.recv() # await confirmation
                     self.bytes_buffer.seek(0)
@@ -200,7 +200,7 @@ class Master:
                     self.bytes_buffer.write(b',')
                     batch_size += 1
 
-                    if batch_size == 250:
+                    if batch_size == self.__opt['node_batch']:
                         batch_size = 0
                         push_socket.send(self.bytes_buffer.getvalue())
                         self.bytes_buffer.seek(0)

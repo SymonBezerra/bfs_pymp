@@ -37,6 +37,17 @@ class Thread:
         self.cache = dict()
         self.bytes_buffer = BytesIO()
 
+        self.__opt = {
+            'node_batch': 500,
+            'edge_batch': 500
+        }
+
+    def set_opt(self, opt, value):
+        try:
+            self.__opt[opt] = value
+        except KeyError:
+            raise ValueError(f"Invalid option: {opt}")
+
     def recv(self):
         data = self.socket.recv()
         msg = Message(data[:20].strip(), data[20:].strip())
@@ -93,7 +104,7 @@ class Thread:
                     self.bytes_buffer.write(b',')
                     self.bytes_buffer.write(nodes[1])
                     self.bytes_buffer.write(b'|')
-                    if batch_count == 500:
+                    if batch_count == self.__opt['node_batch']:
                         batch_count = 0
                         self.push_socket.send(self.bytes_buffer.getvalue())
                         self.pull_socket.recv() # await confirmation
@@ -111,7 +122,7 @@ class Thread:
                     batch_count += 1
                     self.bytes_buffer.write(visited)
                     self.bytes_buffer.write(b',')
-                    if batch_count == 500:
+                    if batch_count == self.__opt['node_batch']:
                         batch_count = 0
                         self.push_socket.send(self.bytes_buffer.getvalue())
                         self.pull_socket.recv()
