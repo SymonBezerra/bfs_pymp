@@ -19,6 +19,18 @@ class Thread:
         self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
         self.socket.connect(f'tcp://{master_ip}:{master_port}')
 
+        self.pull_socket = self.context.socket(zmq.PULL)
+        self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
+        self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+
+        self.push_socket = self.context.socket(zmq.PUSH)
+        self.push_socket.connect(f'tcp://{master_ip}:{master_port + 1000}')
+        self.push_socket.setsockopt(zmq.SNDHWM, 1000)
+        self.push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+
         # adjacency list, source → destinies kept in the clients
         self.edges = defaultdict(list)
         # cache buffer to keep track of visited nodess
@@ -69,10 +81,9 @@ class Thread:
             # self.cache['visited'] = set()
             nodes = [node for node in msg.body.split(b',') if node != b'' and node not in self.cache['visited']]
             if header == b'BFS':
-
                 new_nodes, new_visited = self.bfs(nodes)
                 if not new_nodes and not new_visited:
-                    self.socket.send(Message(b'DONE', b'').build())
+                    self.push_socket.send(Message(b'DONE', b'').build())
                     return
                 self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
                 batch_count = 0
@@ -84,15 +95,15 @@ class Thread:
                     self.bytes_buffer.write(b'|')
                     if batch_count == 500:
                         batch_count = 0
-                        self.socket.send(self.bytes_buffer.getvalue())
-                        self.socket.recv() # await confirmation
+                        self.push_socket.send(self.bytes_buffer.getvalue())
+                        self.pull_socket.recv() # await confirmation
                         self.bytes_buffer.seek(0)
                         self.bytes_buffer.truncate()
                         self.bytes_buffer.write(b'NEW_NODES'.ljust(20))
-                self.socket.send(self.bytes_buffer.getvalue())
+                self.push_socket.send(self.bytes_buffer.getvalue())
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
-                self.socket.recv() # await confirmation
+                self.pull_socket.recv() # await confirmation
 
                 self.bytes_buffer.write(b'VISITED'.ljust(20))
                 batch_count = 0
@@ -102,16 +113,16 @@ class Thread:
                     self.bytes_buffer.write(b',')
                     if batch_count == 500:
                         batch_count = 0
-                        self.socket.send(self.bytes_buffer.getvalue())
-                        self.socket.recv()
+                        self.push_socket.send(self.bytes_buffer.getvalue())
+                        self.pull_socket.recv()
                         self.bytes_buffer.seek(0)
                         self.bytes_buffer.truncate()
                         self.bytes_buffer.write(b'VISITED'.ljust(20))
-                self.socket.send(self.bytes_buffer.getvalue())
-                self.socket.recv() # await confirmation
+                self.push_socket.send(self.bytes_buffer.getvalue())
+                self.pull_socket.recv() # await confirmation
                 self.bytes_buffer.seek(0)
                 self.bytes_buffer.truncate()
-                self.socket.send(Message(b'DONE', b'').build())
+                self.push_socket.send(Message(b'DONE', b'').build())
 
         elif header == b'GET_EDGES' or header == b'GET_EDGES_BFS' or header == b'GET_EDGES_DFS':
             node = msg.body
