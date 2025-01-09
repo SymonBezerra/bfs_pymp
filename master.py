@@ -3,6 +3,7 @@ from io import BytesIO
 import logging
 # import socket
 
+import msgpack
 import zmq
 
 from message import Message
@@ -45,8 +46,6 @@ class Master:
         # list[tuple] to keep track of all client threads
         self.threads = dict()
 
-        self.cache = dict()
-
         self.__opt = {
             'node_batch': 500,
             'edge_batch': 500
@@ -86,23 +85,11 @@ class Master:
         for port in buffers:
             push_socket = self.push_sockets[port]
             LOGGER.info(f'Sending edges to {port}')
-            self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
-            batch_count = 0
-            for edge in buffers[port]:
-                self.bytes_buffer.write(edge)
-                self.bytes_buffer.write(b'|')
-                batch_count += 1
-                if batch_count == self.__opt['edge_batch']:
-                    push_socket.send(self.bytes_buffer.getvalue())
-                    self.pull_socket.recv() # await confirmation
-                    self.bytes_buffer.seek(0)
-                    self.bytes_buffer.truncate()
-                    self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
-                    batch_count = 0
-            push_socket.send(self.bytes_buffer.getvalue())
-            self.pull_socket.recv() # await confirmation
-            self.bytes_buffer.seek(0)
-            self.bytes_buffer.truncate()
+            for _ in range(0, len(buffers[port]), self.__opt['edge_batch']):
+                message = Message(b'ADD_EDGES', buffers[port][_:_+self.__opt['edge_batch']])
+                push_socket.send(msgpack.packb(message.build()))
+                self.pull_socket.recv()
+
 
     def add_thread(self, ip, port):
         thread = (ip, port)
@@ -180,8 +167,8 @@ class Master:
 
         for thread in self.threads:
             socket = self.threads[thread]
-            socket.send(Message(b'INIT_BFS', b'').build())
-            socket.recv() # await confirmation
+            socket.send(msgpack.packb(Message(b'INIT_BFS', b'').build()))
+            socket.recv()
 
         while nodes:
             batches = defaultdict(list)
@@ -190,72 +177,33 @@ class Master:
             nodes.clear()
 
             for thread in batches:
-                socket = self.threads[thread]
-                push_socket = self.push_sockets[thread]
-                batch_size = 0
-                self.bytes_buffer.write(b'BFS'.ljust(20))
-
-                for node in batches[thread]:
-                    self.bytes_buffer.write(node)
-                    self.bytes_buffer.write(b',')
-                    batch_size += 1
-
-                    if batch_size == self.__opt['node_batch']:
-                        batch_size = 0
-                        push_socket.send(self.bytes_buffer.getvalue())
-                        self.bytes_buffer.seek(0)
-                        self.bytes_buffer.truncate()
-                        self.bytes_buffer.write(b'BFS'.ljust(20))
-
-                        while True:
-                            msg_raw = self.pull_socket.recv()
-                            msg = Message(msg_raw[:20].strip(), msg_raw[20:])
-                            if msg.header == b'DONE':
-                                break
-                            elif msg.header == b'NEW_NODES':
-                                new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
-                                for node_tuple in new_nodes:
-                                    src, dest = node_tuple.split(b',')
-                                    src_node, dest_node = Node(src), Node(dest)
-                                    if src_node == dest_node and src_node not in bfs_tree:
-                                        nodes.append(src)
-                                    elif dest_node not in bfs_tree:
-                                        bfs_tree[src_node].append(dest_node)
-                                        bfs_tree[dest_node] = []
-                                        nodes.append(dest)
-                            elif msg.header == b'VISITED':
-                                visited_nodes = {node for node in msg.body.split(b',') if node != b''}
-                                visited.update(visited_nodes)
-                            push_socket.send(Message(b'OK', b'').build())
-
-                push_socket.send(self.bytes_buffer.getvalue())
-                self.bytes_buffer.seek(0)
-                self.bytes_buffer.truncate()
-                while True:
-                    msg_raw = self.pull_socket.recv()
-                    msg = Message(msg_raw[:20].strip(), msg_raw[20:])
-                    if msg.header == b'DONE':
-                        break
-                    elif msg.header == b'NEW_NODES':
-                        new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
-                        for node_tuple in new_nodes:
-                            src, dest = node_tuple.split(b',')
-                            src_node, dest_node = Node(src), Node(dest)
-                            if src_node == dest_node and src_node not in bfs_tree:
-                                nodes.append(src)
-                            elif dest_node not in bfs_tree:
-                                bfs_tree[src_node].append(dest_node)
-                                bfs_tree[dest_node] = []
-                                nodes.append(dest)
-                    elif msg.header == b'VISITED':
-                        visited_nodes = {node for node in msg.body.split(b',') if node != b''}
-                        visited.update(visited_nodes)
-                    push_socket.send(Message(b'OK', b'').build())
+                for i in range(0, len(batches[thread]), self.__opt['node_batch']):
+                    self.push_sockets[thread].send(msgpack.packb(Message(b'BFS', batches[thread][i:i+self.__opt['node_batch']]).build()))
+                    while True:
+                        msg_raw = self.pull_socket.recv()
+                        msg = msgpack.unpackb(msg_raw, raw=False)
+                        header = msg['header']
+                        body = msg['body']
+                        if header == b'RESULT':
+                            new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
+                            visited_nodes = {node for node in body['VISITED'] if node != b''}
+                            for node_tuple in new_nodes:
+                                src, dest = node_tuple
+                                src_node, dest_node = Node(src), Node(dest)
+                                if src_node == dest_node and src_node not in bfs_tree:
+                                    nodes.append(src)
+                                elif dest_node not in bfs_tree:
+                                    bfs_tree[src_node].append(dest_node)
+                                    bfs_tree[dest_node] = []
+                                    nodes.append(dest)
+                            visited.update(visited_nodes)
+                            self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                            break
         return bfs_tree
 
     def restart_threads(self):
         self.nodes.clear()
         for thread in self.threads:
             socket = self.threads[thread]
-            socket.send(Message(b'RESTART', b'').build())
+            socket.send(msgpack.packb(Message(b'RESTART', b'').build()))
             socket.recv()
