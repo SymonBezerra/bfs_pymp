@@ -132,6 +132,23 @@ class Thread:
         batch = deque(nodes)
         new_nodes = []
         new_visited = set()
+        poller = zmq.Poller()
+        poller.register(self.push_socket, zmq.POLLOUT)
+        poller.register(self.pull_socket, zmq.POLLIN)
+        def send_updates(new_nodes, new_visited, done=False):
+            message = {
+                'NEW_NODES': new_nodes,
+                'VISITED': list(new_visited),
+                'DONE': done
+            }
+            while True:
+                events = dict(poller.poll(timeout=1000))
+                if self.push_socket in events:
+                    self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
+                    break
+                elif self.pull_socket in events:
+                    self.pull_socket.recv()
+                    break
 
         while batch:
             current = batch.popleft()
@@ -149,20 +166,11 @@ class Thread:
 
             # Send batched updates when reaching the batch size
             if len(new_nodes) >= self.__opt['node_batch']:
-                self._send_updates(new_nodes, new_visited)
+                send_updates(new_nodes, new_visited)
                 new_nodes.clear()
                 new_visited.clear()
 
         # # Final batch
         # if new_nodes or new_visited:
-        self._send_updates(new_nodes, new_visited, done=True)
+        send_updates(new_nodes, new_visited, done=True)
         # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
-
-    def _send_updates(self, new_nodes, new_visited, done=False):
-        message = {
-            'NEW_NODES': new_nodes,
-            'VISITED': list(new_visited),
-            'DONE': done
-        }
-        self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
-        self.pull_socket.recv()
