@@ -24,14 +24,18 @@ class Master:
 
         self.socket = self.context.socket(zmq.REQ)
         self.socket.bind(f'tcp://{ip}:{port}')
-        self.socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
-        self.socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+        self.socket.setsockopt(zmq.SNDHWM, 10000)  # Send high water mark
+        self.socket.setsockopt(zmq.RCVHWM, 10000)  # Receive high water mark
+        self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+        self.socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.socket.setsockopt(zmq.SNDBUF, 8388608)
 
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
@@ -47,8 +51,8 @@ class Master:
         self.threads = dict()
 
         self.__opt = {
-            'node_batch': 500,
-            'edge_batch': 500
+            'node_batch': 5000,
+            'edge_batch': 5000
         }
 
     def set_opt(self, opt, value):
