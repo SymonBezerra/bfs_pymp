@@ -197,7 +197,7 @@ class Master:
                     msg = msgpack.unpackb(msg_raw, raw=False)
                     header = msg['header']
                     body = msg['body']
-                    # thread = tuple(msg['THREAD_ID'])
+
                     if header == b'RESULT':
                         new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
                         visited_nodes = {node for node in body['VISITED'] if node != b''}

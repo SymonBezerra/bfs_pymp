@@ -108,25 +108,6 @@ class Thread:
             nodes = [node for node in msg_body if node != b'' and node not in self.visited]
             if header == b'BFS':
                 self.bfs(nodes)
-                # new_nodes, new_visited = self.bfs(nodes)
-                # if not new_nodes and not new_visited:
-                #     self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
-                #     return
-
-                # msg = Message(b'RESULT',
-                #     {
-                #         'NEW_NODES': new_nodes,
-                #         'VISITED': new_visited,
-                #         'THREAD_ID': (self.ip, self.port)}).build()
-
-                # self.push_socket.send(msgpack.packb(Message(b'NEW_NODES', new_nodes).build()))
-                # self.pull_socket.recv() # await confirmation
-
-                # self.push_socket.send(msgpack.packb(Message(b'VISITED', new_visited).build()))
-                # self.pull_socket.recv()
-                # self.push_socket.send(msgpack.packb(msg))
-                # self.pull_socket.recv()
-                # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
 
     def bfs(self, nodes):
         batch = deque(nodes)
@@ -170,7 +151,4 @@ class Thread:
                 new_nodes.clear()
                 new_visited.clear()
 
-        # # Final batch
-        # if new_nodes or new_visited:
         send_updates(new_nodes, new_visited, done=True)
-        # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
