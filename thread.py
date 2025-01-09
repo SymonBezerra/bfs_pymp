@@ -41,13 +41,12 @@ class Thread:
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
         # adjacency list, source → destinies kept in the clients
-        self.edges = defaultdict(list)
+        self.edges = defaultdict(deque)
 
         # cache buffer to keep track of visited nodess
         self.visited = set()
         self.nodes_added = set()
         self.search_edges = defaultdict(deque)
-        self.bytes_buffer = BytesIO()
 
         self.__opt = {
             'node_batch': 500,
@@ -108,60 +107,62 @@ class Thread:
             msg_body = msg['body']
             nodes = [node for node in msg_body if node != b'' and node not in self.visited]
             if header == b'BFS':
-                new_nodes, new_visited = self.bfs(nodes)
-                if not new_nodes and not new_visited:
-                    self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
-                    return
-                
-                msg = Message(b'RESULT', 
-                    {
-                        'NEW_NODES': new_nodes,
-                        'VISITED': new_visited,
-                        'THREAD_ID': (self.ip, self.port)}).build()
+                self.bfs(nodes)
+                # new_nodes, new_visited = self.bfs(nodes)
+                # if not new_nodes and not new_visited:
+                #     self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
+                #     return
+
+                # msg = Message(b'RESULT',
+                #     {
+                #         'NEW_NODES': new_nodes,
+                #         'VISITED': new_visited,
+                #         'THREAD_ID': (self.ip, self.port)}).build()
 
                 # self.push_socket.send(msgpack.packb(Message(b'NEW_NODES', new_nodes).build()))
                 # self.pull_socket.recv() # await confirmation
 
                 # self.push_socket.send(msgpack.packb(Message(b'VISITED', new_visited).build()))
                 # self.pull_socket.recv()
-                self.push_socket.send(msgpack.packb(msg))
+                # self.push_socket.send(msgpack.packb(msg))
                 # self.pull_socket.recv()
-                # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').buil()))
+                # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
 
     def bfs(self, nodes):
-        # if node in self.cache['visited']:
-        #     return [], {}
         batch = deque(nodes)
-        new_nodes = deque()
+        new_nodes = []
         new_visited = set()
 
-        cache_visited = self.visited
-        cache_nodes_added = self.nodes_added
-        cache_search_edges = self.search_edges
-        edges = self.edges
         while batch:
             current = batch.popleft()
-            if current in cache_visited: 
-                continue
-            # Add this check
-            elif current not in edges:
-                # This node belongs to another thread
-                # Still add it to visited to prevent cycles
-                # cache_visited.add(current)
-                # Add it to new_nodes so master knows about it
-                new_nodes.append((current, current))
+            if current in self.visited or current not in self.edges:
                 continue
 
-            elif current in edges:
-                for edge in edges[current]:
-                    src = edge.src
-                    dest = edge.dest
-                    batch.append(src)
-                    if dest not in cache_nodes_added:
-                        batch.append(dest)
-                        cache_nodes_added.add(dest)
-                        cache_search_edges[src].append(edge)
-                        new_nodes.append((src, dest))
-                cache_visited.add(current)
-                new_visited.add(current)
-        return list(new_nodes), list(new_visited)
+            for edge in self.edges[current]:
+                if edge.dest not in self.nodes_added:
+                    batch.append(edge.dest)
+                    self.nodes_added.add(edge.dest)
+                    self.search_edges[edge.src].append(edge)
+                    new_nodes.append((edge.src, edge.dest))
+            self.visited.add(current)
+            new_visited.add(current)
+
+            # Send batched updates when reaching the batch size
+            if len(new_nodes) >= self.__opt['node_batch']:
+                self._send_updates(new_nodes, new_visited)
+                new_nodes.clear()
+                new_visited.clear()
+
+        # # Final batch
+        # if new_nodes or new_visited:
+        self._send_updates(new_nodes, new_visited, done=True)
+        # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
+
+    def _send_updates(self, new_nodes, new_visited, done=False):
+        message = {
+            'NEW_NODES': new_nodes,
+            'VISITED': list(new_visited),
+            'DONE': done
+        }
+        self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
+        self.pull_socket.recv()

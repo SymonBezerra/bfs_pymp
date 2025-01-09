@@ -186,25 +186,28 @@ class Master:
                 for i in range(0, len(batches[thread]), self.__opt['node_batch']):
                     self.push_sockets[thread].send(msgpack.packb(Message(b'BFS', batches[thread][i:i+self.__opt['node_batch']]).build()))
                     while True:
-                        msg_raw = self.pull_socket.recv()
-                        msg = msgpack.unpackb(msg_raw, raw=False)
-                        header = msg['header']
-                        body = msg['body']
-                        if header == b'RESULT':
-                            new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
-                            visited_nodes = {node for node in body['VISITED'] if node != b''}
-                            for node_tuple in new_nodes:
-                                src, dest = node_tuple
-                                src_node, dest_node = Node(src), Node(dest)
-                                if src_node == dest_node and src_node not in bfs_tree:
-                                    nodes.append(src)
-                                elif dest_node not in bfs_tree:
-                                    bfs_tree[src_node].append(dest_node)
-                                    bfs_tree[dest_node] = []
-                                    nodes.append(dest)
-                            visited.update(visited_nodes)
-                            # self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
-                            break
+                        events = dict(poller.poll(timeout=1000))
+                        if self.pull_socket in events:
+                            msg_raw = self.pull_socket.recv()
+                            msg = msgpack.unpackb(msg_raw, raw=False)
+                            header = msg['header']
+                            body = msg['body']
+                            # thread = tuple(msg['THREAD_ID'])
+                            if header == b'RESULT':
+                                new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
+                                visited_nodes = {node for node in body['VISITED'] if node != b''}
+                                for node_tuple in new_nodes:
+                                    src, dest = node_tuple
+                                    src_node, dest_node = Node(src), Node(dest)
+                                    if src_node == dest_node and src_node not in bfs_tree:
+                                        nodes.append(src)
+                                    elif dest_node not in bfs_tree:
+                                        bfs_tree[src_node].append(dest_node)
+                                        bfs_tree[dest_node] = []
+                                        nodes.append(dest)
+                                visited.update(visited_nodes)
+                                self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                                if body['DONE']: break
         return bfs_tree
 
     def restart_threads(self):
