@@ -17,8 +17,8 @@ class Thread:
         self.port = port
 
         self.socket.bind(f'tcp://{ip}:{port}')
-        self.socket.setsockopt(zmq.SNDHWM, 10000)  # Send high water mark
-        self.socket.setsockopt(zmq.RCVHWM, 10000)  # Receive high water mark
+        self.socket.setsockopt(zmq.SNDHWM, 10000)
+        self.socket.setsockopt(zmq.RCVHWM, 10000)
         self.socket.setsockopt(zmq.LINGER, 0)
         self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
@@ -43,7 +43,7 @@ class Thread:
         # adjacency list, source → destinies kept in the clients
         self.edges = defaultdict(deque)
 
-        # cache buffer to keep track of visited nodess
+        # cache buffer to keep track of visited nodes
         self.visited = set()
         self.nodes_added = set()
         self.search_edges = defaultdict(deque)
@@ -76,7 +76,7 @@ class Thread:
 
         elif header == b'ADD_NODE':
             node = msg.body
-            self.edges[node] = []  # Use label (bytes) as key
+            self.edges[node] = []
             self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
 
         elif header == b'ADD_EDGE':
@@ -103,7 +103,6 @@ class Thread:
             self.search_edges = defaultdict(deque)
             self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'BFS' or header == b'DFS':
-            # self.cache['visited'] = set()
             msg_body = msg['body']
             nodes = [node for node in msg_body if node != b'' and node not in self.visited]
             if header == b'BFS':
@@ -115,7 +114,6 @@ class Thread:
         new_visited = set()
         poller = zmq.Poller()
         poller.register(self.push_socket, zmq.POLLOUT)
-        # poller.register(self.pull_socket, zmq.POLLIN)
         def send_updates(new_nodes, new_visited, done=False):
             message = {
                 'NEW_NODES': new_nodes,
@@ -127,9 +125,6 @@ class Thread:
                 if self.push_socket in events:
                     self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
                     break
-                # elif self.pull_socket in events:
-                #     self.pull_socket.recv()
-                #     break
 
         while batch:
             current = batch.popleft()
@@ -145,7 +140,6 @@ class Thread:
             self.visited.add(current)
             new_visited.add(current)
 
-            # Send batched updates when reaching the batch size
             if len(new_nodes) >= self.__opt['node_batch']:
                 send_updates(new_nodes, new_visited)
                 new_nodes.clear()

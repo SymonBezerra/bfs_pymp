@@ -62,6 +62,10 @@ class Master:
             raise ValueError(f"Invalid option: {opt}")
 
     def load_file(self, path):
+        poller = zmq.Poller()
+        for thread in self.push_sockets:
+            poller.register(self.push_sockets[thread], zmq.POLLOUT)
+        poller.register(self.pull_socket, zmq.POLLIN)
         buffers = {port: [] for port in self.threads}
         node_buffers = {port: [] for port in self.threads}
 
@@ -86,13 +90,21 @@ class Master:
                     node_buffers[self.nodes[dest_node]].append(dest_node)
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
 
+        edge_batches = 0
         for port in buffers:
             push_socket = self.push_sockets[port]
             LOGGER.info(f'Sending edges to {port}')
             for _ in range(0, len(buffers[port]), self.__opt['edge_batch']):
                 message = Message(b'ADD_EDGES', buffers[port][_:_+self.__opt['edge_batch']])
                 push_socket.send(msgpack.packb(message.build()))
+                edge_batches += 1
+
+        events = dict(poller.poll(timeout=1000))
+        while edge_batches > 0:
+            if self.pull_socket in events:
                 self.pull_socket.recv()
+                edge_batches -= 1
+
 
 
     def add_thread(self, ip, port):
