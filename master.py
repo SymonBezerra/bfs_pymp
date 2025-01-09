@@ -167,8 +167,6 @@ class Master:
         poller = zmq.Poller()
         poller.register(self.pull_socket, zmq.POLLIN)
 
-        pending_responses = {thread: 0 for thread in self.threads}
-
         for thread in self.threads:
             socket = self.threads[thread]
             socket.send(msgpack.packb(Message(b'INIT_BFS', b'').build()))
@@ -183,34 +181,26 @@ class Master:
             for thread in batches:
                 for i in range(0, len(batches[thread]), self.__opt['node_batch']):
                     self.push_sockets[thread].send(msgpack.packb(Message(b'BFS', batches[thread][i:i+self.__opt['node_batch']]).build()))
-                    pending_responses[thread] += 1
-            
-            # Process all available responses
-            while any(pending_responses.values()):
-                events = dict(poller.poll(timeout=1000))  # Non-blocking poll
-                if not events and not nodes: break
-                
-                msg_raw = self.pull_socket.recv()
-                msg = msgpack.unpackb(msg_raw, raw=False)
-                header = msg['header']
-                body = msg['body']
-                if header == b'RESULT':
-                    new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
-                    visited_nodes = {node for node in body['VISITED'] if node != b''}
-                    for node_tuple in new_nodes:
-                        src, dest = node_tuple
-                        src_node, dest_node = Node(src), Node(dest)
-                        if src_node == dest_node and src_node not in bfs_tree:
-                            nodes.append(src)
-                        elif dest_node not in bfs_tree:
-                            bfs_tree[src_node].append(dest_node)
-                            bfs_tree[dest_node] = []
-                            nodes.append(dest)
-                    visited.update(visited_nodes)
-                    thread_id = tuple(body['THREAD_ID'])
-                    # self.push_sockets[thread_id].send(msgpack.packb(Message(b'OK', b'').build()))
-                    pending_responses[thread_id] -= 1
-        
+                    while True:
+                        msg_raw = self.pull_socket.recv()
+                        msg = msgpack.unpackb(msg_raw, raw=False)
+                        header = msg['header']
+                        body = msg['body']
+                        if header == b'RESULT':
+                            new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
+                            visited_nodes = {node for node in body['VISITED'] if node != b''}
+                            for node_tuple in new_nodes:
+                                src, dest = node_tuple
+                                src_node, dest_node = Node(src), Node(dest)
+                                if src_node == dest_node and src_node not in bfs_tree:
+                                    nodes.append(src)
+                                elif dest_node not in bfs_tree:
+                                    bfs_tree[src_node].append(dest_node)
+                                    bfs_tree[dest_node] = []
+                                    nodes.append(dest)
+                            visited.update(visited_nodes)
+                            # self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                            break
         return bfs_tree
 
     def restart_threads(self):
