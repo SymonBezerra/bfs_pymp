@@ -115,7 +115,7 @@ class Thread:
         new_visited = set()
         poller = zmq.Poller()
         poller.register(self.push_socket, zmq.POLLOUT)
-        poller.register(self.pull_socket, zmq.POLLIN)
+        # poller.register(self.pull_socket, zmq.POLLIN)
         def send_updates(new_nodes, new_visited, done=False):
             message = {
                 'NEW_NODES': new_nodes,
@@ -127,9 +127,9 @@ class Thread:
                 if self.push_socket in events:
                     self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
                     break
-                elif self.pull_socket in events:
-                    self.pull_socket.recv()
-                    break
+                # elif self.pull_socket in events:
+                #     self.pull_socket.recv()
+                #     break
 
         while batch:
             current = batch.popleft()

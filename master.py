@@ -211,7 +211,7 @@ class Master:
                                 bfs_tree[dest_node] = []
                                 nodes.append(dest)
                         visited.update(visited_nodes)
-                        self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                        # self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
                         if body['DONE']: batch_requests -= 1
         return bfs_tree
 
