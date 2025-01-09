@@ -13,6 +13,9 @@ class Thread:
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
 
+        self.ip = ip
+        self.port = port
+
         self.socket.bind(f'tcp://{ip}:{port}')
         self.socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
         self.socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
@@ -62,7 +65,9 @@ class Thread:
         header = msg['header']
         if header == b'RESTART':
             self.edges.clear()
-            self.cache.clear()
+            self.visited.clear()
+            self.nodes_added.clear()
+            self.search_edges.clear()
             self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
 
         elif header == b'ADD_NODE':
@@ -103,7 +108,11 @@ class Thread:
                     self.push_socket.send(msgpack.packb(Message(b'DONE', b'').build()))
                     return
                 
-                msg = Message(b'RESULT', {'NEW_NODES': new_nodes, 'VISITED': new_visited}).build()
+                msg = Message(b'RESULT', 
+                    {
+                        'NEW_NODES': new_nodes,
+                        'VISITED': new_visited,
+                        'THREAD_ID': (self.ip, self.port)}).build()
 
                 # self.push_socket.send(msgpack.packb(Message(b'NEW_NODES', new_nodes).build()))
                 # self.pull_socket.recv() # await confirmation
@@ -111,7 +120,7 @@ class Thread:
                 # self.push_socket.send(msgpack.packb(Message(b'VISITED', new_visited).build()))
                 # self.pull_socket.recv()
                 self.push_socket.send(msgpack.packb(msg))
-                self.pull_socket.recv()
+                # self.pull_socket.recv()
                 # self.push_socket.send(msgpack.packb(Message(b'DONE', b'').buil()))
 
     def bfs(self, nodes):

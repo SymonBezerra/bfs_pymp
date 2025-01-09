@@ -1,10 +1,12 @@
 import argparse
 from collections import deque
 import logging
+
+import msgpack
 import zmq
 
 from thread import Thread
-from message import Message
+
 
 args = argparse.ArgumentParser()
 args.add_argument('--port', type=int, default=5001)
@@ -43,13 +45,13 @@ if __name__ == '__main__':
             # Check client.socket
             if client.socket in sockets:
                 data = client.socket.recv()
-                LOGGER.info(f"Received from socket: {data}")
+                LOGGER.info(f"Received from socket: {msgpack.unpackb(data)}")
                 client.exec(data)
             
             # Check client.pull_socket
             if client.pull_socket in sockets:
                 data = client.pull_socket.recv()
-                LOGGER.info(f"Received from pull socket: {data}")
+                LOGGER.info(f"Received from pull socket: {msgpack.unpackb(data)}")
                 client.exec(data)
                 
         except KeyboardInterrupt:
