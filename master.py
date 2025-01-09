@@ -113,6 +113,8 @@ class Master:
         push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
         self.push_sockets[thread] = push_socket
 
+        self.context.set(zmq.IO_THREADS, len(self.threads) * 2)
+
     def add_node(self, node):
         self.nodes[node.encode()] = None
 
