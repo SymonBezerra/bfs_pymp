@@ -38,7 +38,7 @@ class DistGraph:
         for thread in self.__master.threads:
             socket = self.__master.threads[thread]
             socket.send(msgpack.packb(Message(b'CREATE_GRAPH', self.__id.encode()).build()))
-            socket.recv()
+            self.__master.pull_socket.recv()
 
         self.__master.partition_loads[self.__id] = {
             thread: 0 for thread in self.__master.threads

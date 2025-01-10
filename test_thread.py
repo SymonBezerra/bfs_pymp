@@ -43,12 +43,6 @@ if __name__ == '__main__':
             # Poll sockets with a timeout (e.g., 1000ms)
             sockets = dict(poller.poll(1000))
 
-            # Check client.socket
-            if client.socket in sockets:
-                data = client.socket.recv()
-                LOGGER.info(f"Received from socket: {msgpack.unpackb(data)}")
-                client.exec(data)
-
             # Check client.pull_socket
             if client.pull_socket in sockets:
                 data = client.pull_socket.recv()

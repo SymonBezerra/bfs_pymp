@@ -16,15 +16,15 @@ class Thread:
         self.ip = ip
         self.port = port
 
-        self.socket.bind(f'tcp://{ip}:{port}')
-        self.socket.setsockopt(zmq.SNDHWM, 10000)
-        self.socket.setsockopt(zmq.RCVHWM, 10000)
-        self.socket.setsockopt(zmq.LINGER, 0)
-        self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
-        self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
-        self.socket.setsockopt(zmq.RCVBUF, 8388608)
-        self.socket.setsockopt(zmq.SNDBUF, 8388608)
-        self.socket.connect(f'tcp://{master_ip}:{master_port}')
+        # self.socket.bind(f'tcp://{ip}:{port}')
+        # self.socket.setsockopt(zmq.SNDHWM, 10000)
+        # self.socket.setsockopt(zmq.RCVHWM, 10000)
+        # self.socket.setsockopt(zmq.LINGER, 0)
+        # self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        # self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+        # self.socket.setsockopt(zmq.RCVBUF, 8388608)
+        # self.socket.setsockopt(zmq.SNDBUF, 8388608)
+        # self.socket.connect(f'tcp://{master_ip}:{master_port}')
 
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
@@ -70,30 +70,27 @@ class Thread:
         if header == b'CREATE_GRAPH':
             id = msg['body'].decode()
             self.graphs[id] = DistGraphPartitition(id)
-            self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'RESTART':
             self.graphs.clear()
             self.visited.clear()
             self.nodes_added.clear()
             self.search_edges.clear()
-            self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
-
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'ADD_NODE':
             node = msg['body']['node']
             id = msg['body']['id']
             graph = self.graphs[id]
             graph.edges[node] = []
-            self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
-
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'ADD_EDGE':
             n1 = msg['body']['n1']
             n2 = msg['body']['n2']
             weight = msg['body']['weight']
             id = msg['body']['id']
             graph = self.graphs[id]
-
             graph.edges[n1].append(Edge(n1, n2, weight))
-            self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'ADD_EDGES':
             edges = msg['body']['edges']
             id = msg['body']['id']
@@ -103,17 +100,11 @@ class Thread:
                 n1, n2, weight = edge.split(b',')
                 graph.edges[n1].append(Edge(n1, n2, int(weight)))
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
-        # elif header == b'ADD_NODES':
-        #     nodes = msg.body.split(b'|')
-        #     for node in nodes:
-        #         if node == b'': continue
-        #         self.edges[node] = []
-        #     self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'INIT_BFS' or header == b'INIT_DFS':
             self.visited = set()
             self.nodes_added = set()
             self.search_edges = defaultdict(deque)
-            self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'BFS' or header == b'DFS':
             body_nodes = msg['body']['nodes']
             id = msg['body']['id']

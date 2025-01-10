@@ -22,16 +22,6 @@ class Master:
     def __init__(self, ip, port):
         self.context = zmq.Context()
 
-        self.socket = self.context.socket(zmq.REQ)
-        self.socket.bind(f'tcp://{ip}:{port}')
-        self.socket.setsockopt(zmq.SNDHWM, 10000)  # Send high water mark
-        self.socket.setsockopt(zmq.RCVHWM, 10000)  # Receive high water mark
-        self.socket.setsockopt(zmq.LINGER, 0)
-        self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
-        self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
-        self.socket.setsockopt(zmq.RCVBUF, 8388608)
-        self.socket.setsockopt(zmq.SNDBUF, 8388608)
-
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
@@ -39,14 +29,10 @@ class Master:
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
-        self.push_sockets = dict()
+        # (ip, port) -> push socket
+        self.threads = dict()
 
         self.partition_loads = dict() # Track node count per partition
-
-        # nodes → ip kept on server
-        # self.nodes = dict()
-        # list[tuple] to keep track of all client threads
-        self.threads = dict()
 
         self.__opt = {
             'node_batch': 5000,
@@ -62,8 +48,8 @@ class Master:
     def load_file(self, path):
         graph = DistGraph(self)
         poller = zmq.Poller()
-        for thread in self.push_sockets:
-            poller.register(self.push_sockets[thread], zmq.POLLOUT)
+        for thread in self.threads:
+            poller.register(self.threads[thread], zmq.POLLOUT)
         poller.register(self.pull_socket, zmq.POLLIN)
         buffers = {port: [] for port in self.threads}
         node_buffers = {port: [] for port in self.threads}
@@ -96,7 +82,7 @@ class Master:
                 buffers[graph.nodes[src_node]].append(f'{src},{dest},1'.encode())
         edge_batches = 0
         for port in buffers:
-            push_socket = self.push_sockets[port]
+            push_socket = self.threads[port]
             LOGGER.info(f'Sending edges to {port}')
             for i in range(0, len(buffers[port]), self.__opt['edge_batch']):
                 message = Message(b'ADD_EDGES', {
@@ -115,21 +101,12 @@ class Master:
 
     def add_thread(self, ip, port):
         thread = (ip, port)
-        self.partition_loads[thread] = 0
-        socket = self.context.socket(zmq.REQ)
-        socket.connect(f'tcp://{ip}:{port}')
-        socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
-        socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
-        socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
-        socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
-        self.threads[thread] = socket
-
         push_socket = self.context.socket(zmq.PUSH)
         push_socket.connect(f'tcp://{ip}:{port + 1000}')
         push_socket.setsockopt(zmq.SNDHWM, 1000)
         push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
-        self.push_sockets[thread] = push_socket
+        self.threads[thread] = push_socket
 
         self.context.set(zmq.IO_THREADS, len(self.threads) * 2)
 
@@ -172,32 +149,38 @@ class Master:
         dest_node = dest.encode()
         if graph.nodes[src_node] is None:
             graph.nodes[src_node] = self.__get_partition(graph, src_node)
-            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+
+            socket = self.threads[graph.nodes[src_node]]
+            socket.send(msgpack.packb(Message(b'ADD_NODE', {
                 'id': id,
                 'node': src_node
             }).build()))
-            self.socket.recv()
+            self.pull_socket.recv()
         if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
             graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
-            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+            
+            socket = self.threads[graph.nodes[dest_node]]
+            socket.send(msgpack.packb(Message(b'ADD_NODE', {
                 'id': id,
                 'node': dest_node
             }).build()))
-            self.socket.recv()
+            self.pull_socket.recv()
         elif graph.nodes[dest_node] is None and graph.nodes[src_node] is None:
             graph.nodes[dest_node] = self.__get_partition(graph, dest_node)
-            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+            socket = self.threads[graph.nodes[dest_node]]
+            socket.send(msgpack.packb(Message(b'ADD_NODE', {
                 'id': id,
                 'node': dest_node
             }).build()))
-            self.socket.recv()
-        self.socket.send(msgpack.packb(Message(b'ADD_EDGE', {
+            self.pull_socket.recv()
+        socket = self.threads[graph.nodes[src_node]]
+        socket.send(msgpack.packb(Message(b'ADD_EDGE', {
             'id': id,
             'n1': src_node,
             'n2': dest_node,
             'weight': weight
         }).build()))
-        self.socket.recv()
+        self.pull_socket.recv()
 
 
     def bfs(self, node, graph):
@@ -209,13 +192,13 @@ class Master:
         poller = zmq.Poller()
         batch_requests = 0
         poller.register(self.pull_socket, zmq.POLLIN)
-        for push_socket in self.push_sockets:
-            poller.register(self.push_sockets[push_socket], zmq.POLLOUT)
+        for push_socket in self.threads:
+            poller.register(self.threads[push_socket], zmq.POLLOUT)
 
         for thread in self.threads:
             socket = self.threads[thread]
             socket.send(msgpack.packb(Message(b'INIT_BFS', b'').build()))
-            socket.recv()
+            self.pull_socket.recv()
 
         while nodes:
             batches = defaultdict(list)
@@ -225,7 +208,7 @@ class Master:
 
             for thread in batches:
                 for i in range(0, len(batches[thread]), self.__opt['node_batch']):
-                    self.push_sockets[thread].send(msgpack.packb(Message(b'BFS', 
+                    self.threads[thread].send(msgpack.packb(Message(b'BFS',
                     {
                         'nodes': batches[thread][i:i+self.__opt['node_batch']],
                         'id': id
@@ -253,7 +236,7 @@ class Master:
                                 bfs_tree[dest_node] = []
                                 nodes.append(dest)
                         visited.update(visited_nodes)
-                        # self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                        # self.threads[thread].send(msgpack.packb(Message(b'OK', b'').build()))
                         if body['DONE']: batch_requests -= 1
         return bfs_tree
 
@@ -262,4 +245,4 @@ class Master:
         for thread in self.threads:
             socket = self.threads[thread]
             socket.send(msgpack.packb(Message(b'RESTART', b'').build()))
-            socket.recv()
+            self.pull_socket.recv()
