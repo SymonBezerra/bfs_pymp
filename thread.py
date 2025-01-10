@@ -16,16 +16,6 @@ class Thread:
         self.ip = ip
         self.port = port
 
-        # self.socket.bind(f'tcp://{ip}:{port}')
-        # self.socket.setsockopt(zmq.SNDHWM, 10000)
-        # self.socket.setsockopt(zmq.RCVHWM, 10000)
-        # self.socket.setsockopt(zmq.LINGER, 0)
-        # self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
-        # self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
-        # self.socket.setsockopt(zmq.RCVBUF, 8388608)
-        # self.socket.setsockopt(zmq.SNDBUF, 8388608)
-        # self.socket.connect(f'tcp://{master_ip}:{master_port}')
-
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 10000)
