@@ -82,7 +82,7 @@ class Thread:
             node = msg['body']['node']
             id = msg['body']['id']
             graph = self.graphs[id]
-            graph.nodes[node] = None
+            graph.edges[node] = []
             self.socket.send(msgpack.packb(Message(b'OK', b'').build()))
 
         elif header == b'ADD_EDGE':

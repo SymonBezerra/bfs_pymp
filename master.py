@@ -171,44 +171,32 @@ class Master:
         src_node = src.encode()
         dest_node = dest.encode()
         if graph.nodes[src_node] is None:
-            graph.nodes[src_node] = self.__get_partition(src_node)
-            self.socket.send(Message({
-                'header': b'ADD_NODE',
-                'body': {
-                    'node': src_node,
-                    'id': id
-                }
-            }))
+            graph.nodes[src_node] = self.__get_partition(graph, src_node)
+            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+                'id': id,
+                'node': src_node
+            }).build()))
             self.socket.recv()
         if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
-            graph.nodes[dest_node] = self.__get_partition(dest_node, graph.nodes[src_node])
-            self.socket.send(Message({
-                'header': b'ADD_NODE',
-                'body': {
-                    'node': dest_node,
-                    'id': id
-                }
-            }))
+            graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
+            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+                'id': id,
+                'node': dest_node
+            }).build()))
             self.socket.recv()
         elif graph.nodes[dest_node] is None and graph.nodes[src_node] is None:
-            graph.nodes[dest_node] = self.__get_partition(dest_node)
-            self.socket.send(Message({
-                'header': b'ADD_NODE',
-                'body': {
-                    'node': dest_node,
-                    'id': id
-                }
-            }))
+            graph.nodes[dest_node] = self.__get_partition(graph, dest_node)
+            self.socket.send(msgpack.packb(Message(b'ADD_NODE', {
+                'id': id,
+                'node': dest_node
+            }).build()))
             self.socket.recv()
-        self.socket.send(Message({
-            'header': b'ADD_EDGE',
-            'body': {
-                'src': src_node,
-                'dest': dest_node,
-                'weight': weight,
-                'id': id
-            }
-        }))
+        self.socket.send(msgpack.packb(Message(b'ADD_EDGE', {
+            'id': id,
+            'n1': src_node,
+            'n2': dest_node,
+            'weight': weight
+        }).build()))
         self.socket.recv()
 
 
