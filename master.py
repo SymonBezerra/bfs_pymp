@@ -1,7 +1,10 @@
 from collections import defaultdict
 from io import BytesIO
 import logging
-import socket
+# import socket
+
+import msgpack
+import zmq
 
 from message import Message
 from graph import Node
@@ -17,42 +20,52 @@ LOGGER.addHandler(console_handler)
 
 class Master:
     def __init__(self, ip, port):
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024 * 1024)
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024 * 1024)
+        self.context = zmq.Context()
 
-        self.socket.settimeout(5.0)
-        # Set high priority for network traffic
-        # self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_PRIORITY, 6)
+        self.socket = self.context.socket(zmq.REQ)
+        self.socket.bind(f'tcp://{ip}:{port}')
+        self.socket.setsockopt(zmq.SNDHWM, 10000)  # Send high water mark
+        self.socket.setsockopt(zmq.RCVHWM, 10000)  # Receive high water mark
+        self.socket.setsockopt(zmq.LINGER, 0)
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+        self.socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.socket.setsockopt(zmq.SNDBUF, 8388608)
 
-        # Set Type of Service (TOS) for QoS
-        self.socket.setsockopt(socket.IPPROTO_IP, socket.IP_TOS, 0x10)  # IPTOS_LOWDELAY
+        self.pull_socket = self.context.socket(zmq.PULL)
+        self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
+        self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
-        self.socket.bind((ip, port))
+        self.push_sockets = dict()
 
-        self.partition_loads = {}  # Track node count per partition
+        self.partition_loads = dict() # Track node count per partition
 
         self.bytes_buffer = BytesIO()
 
         # nodes → ip kept on server
         self.nodes = dict()
         # list[tuple] to keep track of all client threads
-        self.threads = list()
+        self.threads = dict()
 
-        self.cache = dict()
+        self.__opt = {
+            'node_batch': 5000,
+            'edge_batch': 5000
+        }
 
-    def recv(self, bufsize=32768):
-        data, addr = self.socket.recvfrom(bufsize)
-        # return json.loads(data.decode())
-        return Message(data[:20].strip(), data[20:]), addr
-
-    def send(self, msg, ip, port):
-        # `send` awaits for a confirmation message
-        self.socket.sendto(msg.build(), (ip, int(port)))
-        data, _ = self.socket.recvfrom(32768)
-        return Message(data[:20].strip(), data[20:].strip())
+    def set_opt(self, opt, value):
+        try:
+            self.__opt[opt] = value
+        except KeyError:
+            raise ValueError(f"Invalid option: {opt}")
 
     def load_file(self, path):
+        poller = zmq.Poller()
+        for thread in self.push_sockets:
+            poller.register(self.push_sockets[thread], zmq.POLLOUT)
+        poller.register(self.pull_socket, zmq.POLLIN)
         buffers = {port: [] for port in self.threads}
         node_buffers = {port: [] for port in self.threads}
 
@@ -76,69 +89,43 @@ class Master:
                     # self.send(Message(b'ADD_NODE', dest_node), *self.nodes[dest_node])
                     node_buffers[self.nodes[dest_node]].append(dest_node)
                 buffers[self.nodes[src_node]].append(f'{src},{dest},1'.encode())
-        # for node_port in node_buffers:
-        #     LOGGER.info(f'Sending nodes to {node_port}')
-        #     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
-        #     node_batch = 0
-        #     for node in node_buffers[node_port]:
-        #         self.bytes_buffer.write(node)
-        #         self.bytes_buffer.write(b'|')
-        #         node_batch += 1
-        #         if node_batch == 500:
-        #             while True:
-        #                 try:
-        #                     self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-        #                     self.socket.recvfrom(32768)
-        #                     self.bytes_buffer.seek(0)
-        #                     self.bytes_buffer.truncate()
-        #                     self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
-        #                     node_batch = 0
-        #                     break
-        #                 except:
-        #                     continue
-        #     while True:
-        #         try:
-        #             self.socket.sendto(self.bytes_buffer.getvalue(), node_port)
-        #             self.socket.recvfrom(32768)
-        #             self.bytes_buffer.seek(0)
-        #             self.bytes_buffer.truncate()
-        #             self.bytes_buffer.write(b'ADD_NODES'.ljust(20))
-        #             node_batch = 0
-        #             break
-        #         except: continue
 
+        edge_batches = 0
         for port in buffers:
+            push_socket = self.push_sockets[port]
             LOGGER.info(f'Sending edges to {port}')
-            self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
-            batch_count = 0
-            for edge in buffers[port]:
-                self.bytes_buffer.write(edge)
-                self.bytes_buffer.write(b'|')
-                batch_count += 1
-                if batch_count == 500:
-                    while True:
-                        try:
-                            self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                            self.socket.recvfrom(32768) # await confirmation
-                            self.bytes_buffer.seek(0)
-                            self.bytes_buffer.truncate()
-                            self.bytes_buffer.write(b'ADD_EDGES'.ljust(20))
-                            batch_count = 0
-                            break
-                        except: continue
-            while True:
-                try:
-                    self.socket.sendto(self.bytes_buffer.getvalue(), port)
-                    self.socket.recvfrom(32768) # await confirmation
-                    self.bytes_buffer.seek(0)
-                    self.bytes_buffer.truncate()
-                    break
-                except: continue
+            for _ in range(0, len(buffers[port]), self.__opt['edge_batch']):
+                message = Message(b'ADD_EDGES', buffers[port][_:_+self.__opt['edge_batch']])
+                push_socket.send(msgpack.packb(message.build()))
+                edge_batches += 1
+
+        events = dict(poller.poll(timeout=1000))
+        while edge_batches > 0:
+            if self.pull_socket in events:
+                self.pull_socket.recv()
+                edge_batches -= 1
+
+
 
     def add_thread(self, ip, port):
         thread = (ip, port)
-        self.threads.append(thread)
         self.partition_loads[thread] = 0
+        socket = self.context.socket(zmq.REQ)
+        socket.connect(f'tcp://{ip}:{port}')
+        socket.setsockopt(zmq.SNDHWM, 1000)  # Send high water mark
+        socket.setsockopt(zmq.RCVHWM, 1000)  # Receive high water mark
+        socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+        self.threads[thread] = socket
+
+        push_socket = self.context.socket(zmq.PUSH)
+        push_socket.connect(f'tcp://{ip}:{port + 1000}')
+        push_socket.setsockopt(zmq.SNDHWM, 1000)
+        push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+        self.push_sockets[thread] = push_socket
+
+        self.context.set(zmq.IO_THREADS, len(self.threads) * 2)
 
     def add_node(self, node):
         self.nodes[node.encode()] = None
@@ -195,9 +182,16 @@ class Master:
         root_node = node.encode()
         nodes = [root_node]
         bfs_tree = defaultdict(list)
+        poller = zmq.Poller()
+        batch_requests = 0
+        poller.register(self.pull_socket, zmq.POLLIN)
+        for push_socket in self.push_sockets:
+            poller.register(self.push_sockets[push_socket], zmq.POLLOUT)
 
         for thread in self.threads:
-            self.socket.sendto(Message(b'INIT_BFS', b'').build(), thread)
+            socket = self.threads[thread]
+            socket.send(msgpack.packb(Message(b'INIT_BFS', b'').build()))
+            socket.recv()
 
         while nodes:
             batches = defaultdict(list)
@@ -206,53 +200,23 @@ class Master:
             nodes.clear()
 
             for thread in batches:
-                batch_size = 0
-                self.bytes_buffer.write(b'BFS'.ljust(20))
+                for i in range(0, len(batches[thread]), self.__opt['node_batch']):
+                    self.push_sockets[thread].send(msgpack.packb(Message(b'BFS', batches[thread][i:i+self.__opt['node_batch']]).build()))
+                    batch_requests += 1
 
-                for node in batches[thread]:
-                    self.bytes_buffer.write(node)
-                    self.bytes_buffer.write(b',')
-                    batch_size += 1
+            while batch_requests > 0:
+                events = dict(poller.poll(timeout=1000))
+                if self.pull_socket in events:
+                    msg_raw = self.pull_socket.recv()
+                    msg = msgpack.unpackb(msg_raw, raw=False)
+                    header = msg['header']
+                    body = msg['body']
 
-                    if batch_size == 250:
-                        batch_size = 0
-                        self.socket.sendto(self.bytes_buffer.getvalue(), thread)
-                        self.bytes_buffer.seek(0)
-                        self.bytes_buffer.truncate()
-                        self.bytes_buffer.write(b'BFS'.ljust(20))
-
-                        while True:
-                            msg, addr = self.recv(32768)
-                            self.socket.sendto(Message(b'OK', b'').build(), addr)
-                            if msg.header == b'DONE':
-                                break
-                            elif msg.header == b'NEW_NODES':
-                                new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
-                                for node_tuple in new_nodes:
-                                    src, dest = node_tuple.split(b',')
-                                    src_node, dest_node = Node(src), Node(dest)
-                                    if src_node == dest_node and src_node not in bfs_tree:
-                                        nodes.append(src)
-                                    elif dest_node not in bfs_tree:
-                                        bfs_tree[src_node].append(dest_node)
-                                        bfs_tree[dest_node] = []
-                                        nodes.append(dest)
-                            elif msg.header == b'VISITED':
-                                visited_nodes = {node for node in msg.body.split(b',') if node != b''}
-                                visited.update(visited_nodes)
-
-                self.socket.sendto(self.bytes_buffer.getvalue(), thread)
-                self.bytes_buffer.seek(0)
-                self.bytes_buffer.truncate()
-                while True:
-                    msg, addr = self.recv(32768)
-                    self.socket.sendto(Message(b'OK', b'').build(), addr)
-                    if msg.header == b'DONE':
-                        break
-                    elif msg.header == b'NEW_NODES':
-                        new_nodes = [nodes for nodes in msg.body.split(b'|') if nodes != b'']
+                    if header == b'RESULT':
+                        new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
+                        visited_nodes = {node for node in body['VISITED'] if node != b''}
                         for node_tuple in new_nodes:
-                            src, dest = node_tuple.split(b',')
+                            src, dest = node_tuple
                             src_node, dest_node = Node(src), Node(dest)
                             if src_node == dest_node and src_node not in bfs_tree:
                                 nodes.append(src)
@@ -260,13 +224,14 @@ class Master:
                                 bfs_tree[src_node].append(dest_node)
                                 bfs_tree[dest_node] = []
                                 nodes.append(dest)
-                    elif msg.header == b'VISITED':
-                        visited_nodes = {node for node in msg.body.split(b',') if node != b''}
                         visited.update(visited_nodes)
+                        # self.push_sockets[thread].send(msgpack.packb(Message(b'OK', b'').build()))
+                        if body['DONE']: batch_requests -= 1
         return bfs_tree
 
     def restart_threads(self):
         self.nodes.clear()
         for thread in self.threads:
-            self.socket.sendto(Message(b'RESTART', b'').build(), thread)
-            self.recv()
+            socket = self.threads[thread]
+            socket.send(msgpack.packb(Message(b'RESTART', b'').build()))
+            socket.recv()
