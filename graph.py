@@ -50,7 +50,7 @@ class DistGraph:
 
     def add_node(self, node):
         if isinstance(node, Node):
-            self.nodes[node.label] = node
+            self.nodes[node.label] = None
         elif isinstance(node, bytes):
             self.nodes[node] = None
         elif isinstance(node, str):

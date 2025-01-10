@@ -52,7 +52,6 @@ class Master:
             poller.register(self.threads[thread], zmq.POLLOUT)
         poller.register(self.pull_socket, zmq.POLLIN)
         buffers = {port: [] for port in self.threads}
-        node_buffers = {port: [] for port in self.threads}
 
         with open(path, 'r') as file:
 
@@ -72,13 +71,10 @@ class Master:
 
                 if graph.nodes[src_node] is None:
                     graph.nodes[src_node] = self.__get_partition(graph, src_node)
-                    node_buffers[graph.nodes[src_node]].append(src_node)
                 if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
                     graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
-                    node_buffers[graph.nodes[dest_node]].append(dest_node)
                 elif graph.nodes[dest_node] is None and graph.nodes[src_node] is None:
                     graph.nodes[dest_node] = self.__get_partition(graph, dest_node)
-                    node_buffers[graph.nodes[dest_node]].append(dest_node)
                 buffers[graph.nodes[src_node]].append(f'{src},{dest},1'.encode())
         edge_batches = 0
         for port in buffers:
@@ -239,6 +235,47 @@ class Master:
                         # self.threads[thread].send(msgpack.packb(Message(b'OK', b'').build()))
                         if body['DONE']: batch_requests -= 1
         return bfs_tree
+
+    def dict_to_graph(self, graph_dict):
+        poller = zmq.Poller()
+        for thread in self.threads:
+            poller.register(self.threads[thread], zmq.POLLOUT)
+        poller.register(self.pull_socket, zmq.POLLIN)
+        graph = DistGraph(self)
+        edges = []
+        buffers = {port: [] for port in self.threads}
+        for node in graph_dict:
+            src_node = node.label
+            if src_node not in graph.nodes: graph.add_node(node)
+            for neighbor in graph_dict[node]:
+                dest_node = neighbor.label
+                if dest_node not in graph.nodes: graph.add_node(neighbor)
+                # edges.append(f'{node},{neighbor},1'.encode())
+                if graph.nodes[src_node] is None:
+                    graph.nodes[src_node] = self.__get_partition(graph, src_node)
+                if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
+                    graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
+                elif graph.nodes[dest_node] is None and graph.nodes[src_node] is None:
+                    graph.nodes[dest_node] = self.__get_partition(graph, dest_node)
+                buffers[graph.nodes[src_node]].append(f'{node},{neighbor},1'.encode())
+        edge_batches = 0
+        for port in buffers:
+            push_socket = self.threads[port]
+            LOGGER.info(f'Sending edges to {port}')
+            for i in range(0, len(buffers[port]), self.__opt['edge_batch']):
+                message = Message(b'ADD_EDGES', {
+                    'edges': buffers[port][i:i+self.__opt['edge_batch']],
+                    'id': graph.id
+                })
+                push_socket.send(msgpack.packb(message.build()))
+                edge_batches += 1
+
+        events = dict(poller.poll(timeout=1000))
+        while edge_batches > 0:
+            if self.pull_socket in events:
+                self.pull_socket.recv()
+                edge_batches -= 1
+        return graph
 
     def restart_threads(self):
         self.partition_loads.clear()
