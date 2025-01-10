@@ -49,7 +49,14 @@ class DistGraph:
         return self.__id
 
     def add_node(self, node):
-        self.nodes[node] = None
+        if isinstance(node, Node):
+            self.nodes[node.label] = node
+        elif isinstance(node, bytes):
+            self.nodes[node] = None
+        elif isinstance(node, str):
+            self.nodes[node.encode()] = None
+        else:
+            raise TypeError('Node must be of type Node, bytes, or str')
 
     def add_edge(self, n1, n2, weight=1):
         self.__master.add_edge(n1, n2, weight, self)
