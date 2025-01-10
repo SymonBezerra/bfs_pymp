@@ -35,7 +35,6 @@ if __name__ == '__main__':
     poller = zmq.Poller()
 
     # Register both sockets with the poller
-    poller.register(client.socket, zmq.POLLIN)
     poller.register(client.pull_socket, zmq.POLLIN)
 
     while True:
@@ -51,7 +50,6 @@ if __name__ == '__main__':
 
         except KeyboardInterrupt:
             # Clean shutdown
-            poller.unregister(client.socket)
             poller.unregister(client.pull_socket)
             client.socket.close()
             client.pull_socket.close()
