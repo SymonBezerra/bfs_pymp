@@ -1,4 +1,5 @@
 from collections import defaultdict
+import heapq
 import uuid
 
 import msgpack
@@ -40,9 +41,9 @@ class DistGraph:
             socket.send(msgpack.packb(Message(b'CREATE_GRAPH', self.__id.encode()).build()))
             self.__master.pull_socket.recv()
 
-        self.__master.partition_loads[self.__id] = {
-            thread: 0 for thread in self.__master.threads
-        }
+        self.__master.partition_loads[self.__id] = [(0, partition) for partition in self.__master.threads]
+        heapq.heapify(self.__master.partition_loads[self.__id])
+
 
     @property
     def id(self):

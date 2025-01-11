@@ -1,5 +1,6 @@
-from collections import defaultdict, deque
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+import heapq
 import logging
 # import socket
 import threading
@@ -35,7 +36,7 @@ class Master:
         # (ip, port) -> push socket
         self.threads = dict()
 
-        self.partition_loads = dict() # Track node count per partition
+        self.partition_loads = {}
 
         self.__opt = {
             'node_batch': 5000,
@@ -112,36 +113,26 @@ class Master:
         self.context.set(zmq.IO_THREADS, len(self.threads) * 2)
 
     def __get_partition(self, graph, node, neighbor=None):
-        # Get target load per partition
-        partition_loads = self.partition_loads[graph.id]
+        # Access the heap for the current graph's partition loads
+        partition_heap = self.partition_loads[graph.id]
         target_load = len(graph.nodes) // len(self.threads)
 
         if neighbor:
-            # If neighbor partition isn't overloaded, prefer it for locality
-            if partition_loads[neighbor] < target_load:
-                partition_loads[neighbor] += 1
-                return neighbor
+            # Check if the neighbor's partition is under the target load
+            for i, (load, partition) in enumerate(partition_heap):
+                if partition == neighbor:
+                    if load < target_load:
+                        # Update the neighbor's load and re-heapify
+                        partition_heap[i] = (load + 1, neighbor)
+                        heapq.heapify(partition_heap)
+                        return neighbor
+                    break
 
-            # Find least loaded partition that isn't the neighbor
-            min_load = float('inf')
-            min_partition = None
-            for partition in self.threads:
-                if partition != neighbor and partition_loads[partition] < min_load:
-                    min_load = partition_loads[partition]
-                    min_partition = partition
+        # If no neighbor is specified or the neighbor is overloaded, pick the least loaded partition
+        min_load, min_partition = heapq.heappop(partition_heap)
 
-            partition_loads[min_partition] += 1
-            return min_partition
-
-        # No neighbor - assign to least loaded partition
-        min_load = float('inf')
-        min_partition = None
-        for partition in self.threads:
-            if partition_loads[partition] < min_load:
-                min_load = partition_loads[partition]
-                min_partition = partition
-
-        partition_loads[min_partition] += 1
+        # Assign the node to the least loaded partition and reinsert it into the heap
+        heapq.heappush(partition_heap, (min_load + 1, min_partition))
         return min_partition
 
     def add_edge(self, src, dest, weight, graph):
