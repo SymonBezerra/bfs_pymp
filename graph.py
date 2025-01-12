@@ -28,6 +28,10 @@ class Edge:
         self.weight = weight
         self.attr = attr
 
+    def __repr__(self):
+        # debug
+        return f'{self.src.decode()} -> {self.dest.decode()}'
+
 class DistGraph:
     def __init__(self, master):
         self.nodes = dict()
@@ -64,6 +68,9 @@ class DistGraph:
 
     def bfs(self, node):
         return self.__master.bfs(node, self)
+
+    def __len__(self):
+        return len(self.nodes)
 
 class DistGraphPartitition:
     def __init__(self, id):
