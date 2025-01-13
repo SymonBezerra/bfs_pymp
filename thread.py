@@ -158,8 +158,10 @@ class Thread:
         graph = self.graphs[id]
         visited = set()
         cross_nodes = list()
+        cross_edges = list()
         
         batch = deque(nodes)
+        self.nodes_added.update(nodes)
         while batch:
             current = batch.popleft()
             
@@ -180,19 +182,25 @@ class Thread:
             
             # Process edges
             for edge in src_graph.edges[current]:
+                src = edge.src
                 dest = edge.dest
-                if dest not in self.nodes_added:
-                    graph.edges[current].append(Edge(edge.src, edge.dest))
-                    if dest not in self.visited:
-                        batch.append(dest)
-                        self.nodes_added.add(dest)
+                if dest in self.nodes_added: continue
+                if dest not in src_graph.edges: # cross-partition edge
+                    cross_edges.append((src, dest))
+                    self.nodes_added.add(dest)
+                else:
+                    graph.edges[src].append(Edge(src, dest))
+                    self.nodes_added.add(dest)
+                if dest not in self.visited:
+                    batch.append(dest)
 
             # Send batch if threshold reached
             if len(visited) >= self.__opt['node_batch']:
                 message = {
                     'nodes': list(visited),
                     'thread': (self.ip, self.port),
-                    'cross_nodes': cross_nodes
+                    'cross_nodes': cross_nodes,
+                    'cross_edges': cross_edges
                 }
                 self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
                 visited.clear()
@@ -203,7 +211,8 @@ class Thread:
             message = {
                 'nodes': list(visited),
                 'thread': (self.ip, self.port),
-                'cross_nodes': cross_nodes
+                'cross_nodes': cross_nodes,
+                'cross_edges': cross_edges
             }
             self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
 

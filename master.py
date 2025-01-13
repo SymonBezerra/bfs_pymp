@@ -187,101 +187,6 @@ class Master:
         }).build()))
         self.pull_socket.recv()
 
-
-    # def bfs(self, node, graph):
-    #     id = graph.id
-    #     visited = set()
-    #     root_node = node.encode()
-    #     nodes = [root_node]
-    #     bfs_tree = defaultdict(list)
-    #     poller = zmq.Poller()
-    #     batch_requests = 0
-        
-    #     mutex = threading.Lock()
-        
-    #     def process_messages(message_queue):
-    #         nonlocal nodes, batch_requests
-    #         while batch_requests > 0 or not message_queue.empty():
-    #             try:
-    #                 body = message_queue.get(timeout=0.1)
-    #                 with mutex:
-    #                     new_nodes = [nodes for nodes in body['NEW_NODES'] if nodes != b'']
-    #                     visited_nodes = {node for node in body['VISITED'] if node != b''}
-                        
-    #                     for node_tuple in new_nodes:
-    #                         src, dest = node_tuple
-    #                         src_node, dest_node = Node(src), Node(dest)
-    #                         if src_node == dest_node and src_node not in bfs_tree:
-    #                             nodes.append(src)
-    #                         elif dest_node not in bfs_tree:
-    #                             bfs_tree[src_node].append(dest_node)
-    #                             bfs_tree[dest_node] = []
-    #                             nodes.append(dest)
-    #                     visited.update(visited_nodes)
-                        
-    #                 message_queue.task_done()
-    #             except queue.Empty:
-    #                 continue
-        
-    #     def recv_messages(message_queue):
-    #         nonlocal batch_requests
-    #         while batch_requests > 0:
-    #             events = dict(poller.poll(timeout=10))
-    #             if self.pull_socket in events:
-    #                 try:
-    #                     msg_raw = self.pull_socket.recv(zmq.NOBLOCK)
-    #                     msg = msgpack.unpackb(msg_raw, raw=False)
-                        
-    #                     if msg['header'] == b'RESULT':
-    #                         message_queue.put(msg['body'])
-    #                         if msg['body']['DONE']:
-    #                             batch_requests -= 1
-    #                 except zmq.Again:
-    #                     continue
-    #                 except queue.Full:
-    #                     time.sleep(0.001)  # Brief pause if queue is full
-        
-    #     # Initialize poller and workers
-    #     poller.register(self.pull_socket, zmq.POLLIN)
-    #     for push_socket in self.threads:
-    #         poller.register(self.threads[push_socket], zmq.POLLOUT)
-    #         socket = self.threads[push_socket]
-    #         socket.send(msgpack.packb(Message(b'INIT_BFS', b'').build()), zmq.NOBLOCK)
-    #         self.pull_socket.recv()
-        
-    #     while nodes:
-    #         # Process nodes in batches
-    #         batches = defaultdict(list)
-    #         with mutex:
-    #             for n in nodes:
-    #                 if n not in visited:
-    #                     batches[graph.nodes[n]].append(n)
-    #             nodes.clear()
-            
-    #         # Send batches using non-blocking operations
-    #         for thread in batches:
-    #             batch_size = self.__opt['node_batch']
-    #             for i in range(0, len(batches[thread]), batch_size):
-    #                 self.threads[thread].send(msgpack.packb(Message(b'BFS',
-    #                 {
-    #                     'nodes': batches[thread][i:i+batch_size],
-    #                     'id': id
-    #                 }).build()), zmq.NOBLOCK)
-    #                 batch_requests += 1
-            
-    #         # Use thread pool for message handling
-    #         recv_future = self.thread_pool.submit(recv_messages, self.message_queue)
-    #         process_future = self.thread_pool.submit(process_messages, self.message_queue)
-            
-    #         # Wait for completion
-    #         recv_future.result()
-    #         process_future.result()
-            
-    #         # Ensure queue is empty before continuing
-    #         self.message_queue.join()
-        
-    #     return bfs_tree
-
     def bfs(self, node, graph):
         bfs_tree = DistGraph(self)
         bfs_tree_id = bfs_tree.id
@@ -316,6 +221,7 @@ class Master:
         )
         active_threads[root_thread] = True
         pending_nodes.add(root_node)
+        edge_buffers = {port: [] for port in self.threads}
 
         while any(active_threads.values()) or pending_nodes:
             events = dict(poller.poll(timeout=1000))
@@ -339,6 +245,7 @@ class Master:
 
                     # Process cross nodes immediately
                     cross_nodes = body['cross_nodes']
+                    cross_edges = body['cross_edges']
                     buffers = {port: [] for port in self.threads}
                     
                     for node in cross_nodes:
@@ -362,10 +269,25 @@ class Master:
                                 )
                                 active_threads[target_thread] = True
 
+                    for edge in cross_edges:
+                        src, dest = edge
+                        if dest not in visited:
+                            edge_buffers[graph.nodes[src]].append(f'{src},{dest},1'.encode())
+
+
                 elif header == b'DONE':
                     ip, port = body['thread']
                     active_threads[(ip, port)] = False
 
+        for port in edge_buffers:
+            push_socket = self.threads[port]
+            for i in range(0, len(edge_buffers[port]), self.__opt['edge_batch']):
+                message = Message(b'ADD_EDGES', {
+                    'edges': edge_buffers[port][i:i+self.__opt['edge_batch']],
+                    'id': graph.id
+                })
+                push_socket.send(msgpack.packb(message.build()))
+                # self.pull_socket.recv()
         return bfs_tree
 
     def dict_to_graph(self, graph_dict):
