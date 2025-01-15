@@ -270,9 +270,9 @@ class Master:
                                 active_threads[target_thread] = True
 
                     for edge in cross_edges:
-                        src, dest = edge
+                        src, dest = edge[0].decode(), edge[1].decode()
                         if dest not in visited:
-                            edge_buffers[graph.nodes[src]].append(f'{src},{dest},1'.encode())
+                            edge_buffers[graph.nodes[src.encode()]].append(f'{src},{dest},1'.encode())
 
 
                 elif header == b'DONE':
