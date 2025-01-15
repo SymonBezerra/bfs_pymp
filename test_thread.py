@@ -51,7 +51,6 @@ if __name__ == '__main__':
         except KeyboardInterrupt:
             # Clean shutdown
             poller.unregister(client.pull_socket)
-            client.socket.close()
             client.pull_socket.close()
             break
         except Exception as e:

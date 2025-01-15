@@ -1,3 +1,5 @@
+# distutils: language=c++
+
 import uuid
 import heapq
 import msgpack
@@ -12,9 +14,6 @@ from cpython.bytes cimport PyBytes_Check
 from message import Message
 
 cdef class Node:
-    cdef readonly bytes label
-    cdef public dict attr
-
     def __cinit__(self, bytes label, dict attr=None):
         if attr is None:
             attr = {}
@@ -36,11 +35,6 @@ cdef class Node:
         raise TypeError(f'Cannot compare Node and {type(other)}')
 
 cdef class Edge:
-    cdef readonly bytes src
-    cdef readonly bytes dest
-    cdef public double weight
-    cdef public dict attr
-    
     def __cinit__(self, object src, object dest, double weight=1.0, dict attr=None):
         if attr is None:
             attr = {}
@@ -48,12 +42,16 @@ cdef class Edge:
         # Handle src encoding
         if isinstance(src, bytes):
             self.src = src  # Already bytes, use directly
+        elif isinstance(src, str):
+            self.src = src.encode()
         else:
             self.src = str(src).encode()
             
         # Handle dest encoding
         if isinstance(dest, bytes):
             self.dest = dest  # Already bytes, use directly
+        elif isinstance(dest, str):
+            self.dest = dest.encode()
         else:
             self.dest = str(dest).encode()
             
@@ -63,13 +61,52 @@ cdef class Edge:
     def __repr__(self):
         return f"{self.src.decode('utf-8')} -> {self.dest.decode('utf-8')}"
 
-cdef class DistGraph:
-    cdef public dict nodes  # Declare all attributes first
-    cdef str __id
-    cdef object __master
+cdef class EdgeVectorIterator:
+    cdef void set_vector(self, vector[EdgeStruct]* vec):
+        self._vec = vec
+        self._pos = 0
     
+    def __iter__(self):
+        return self
+    
+    def __next__(self):
+        if self._pos >= self._vec.size():
+            raise StopIteration()
+        
+        cdef EdgeStruct edge = deref(self._vec)[self._pos]
+        # Convert std::string back to Python bytes
+        cdef bytes src_bytes = string(edge.src.c_str()[:edge.src.size()])
+        cdef bytes dest_bytes = string(edge.dest.c_str()[:edge.dest.size()])
+        
+        self._pos += 1
+        return (src_bytes, dest_bytes, edge.weight)
+
+cdef class EdgeVector:
+    def __cinit__(self):
+        self._vec = new vector[EdgeStruct]()
+        self._iterator = EdgeVectorIterator()
+    
+    def __dealloc__(self):
+        if self._vec != NULL:
+            del self._vec
+    
+    def append(self, bytes src, bytes dest, double weight):
+        cdef EdgeStruct edge
+        edge.src = string(src)
+        edge.dest = string(dest)
+        edge.weight = weight
+        self._vec.push_back(edge)
+    
+    def __iter__(self):
+        self._iterator.set_vector(self._vec)
+        return self._iterator
+    
+    def __len__(self):
+        return self._vec.size()
+
+cdef class DistGraph:
     def __cinit__(self, master):
-        self.nodes = {}  # Now we can initialize them
+        self.nodes = {}
         self.__id = str(uuid.uuid4())
         self.__master = master
         
@@ -126,79 +163,15 @@ cdef class DistGraph:
     def __len__(self):
         return len(self.nodes)
 
-cdef extern from *:
-    """
-    struct EdgeStruct {
-        std::string src;
-        std::string dest;
-        double weight;
-    };
-    """
-    struct EdgeStruct:
-        string src
-        string dest
-        double weight
-
-cdef class EdgeVectorIterator:
-    cdef vector[EdgeStruct]* _vec
-    cdef size_t _pos
-    
-    cdef void set_vector(self, vector[EdgeStruct]* vec):
-        self._vec = vec
-        self._pos = 0
-    
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
-        if self._pos >= self._vec.size():
-            raise StopIteration()
-        
-        cdef EdgeStruct edge = deref(self._vec)[self._pos]
-        # Convert std::string back to Python bytes
-        cdef bytes src_bytes = edge.src.c_str()[:edge.src.size()]
-        cdef bytes dest_bytes = edge.dest.c_str()[:edge.dest.size()]
-        
-        self._pos += 1
-        return (src_bytes, dest_bytes, edge.weight)
-
-cdef class EdgeVector:
-    cdef vector[EdgeStruct]* _vec
-    cdef EdgeVectorIterator _iterator
-    
-    def __cinit__(self):
-        self._vec = new vector[EdgeStruct]()
-        self._iterator = EdgeVectorIterator()
-    
-    def __dealloc__(self):
-        if self._vec != NULL:
-            del self._vec
-    
-    def append(self, bytes src, bytes dest, double weight):
-        cdef EdgeStruct edge
-        edge.src = src
-        edge.dest = dest
-        edge.weight = weight
-        self._vec.push_back(edge)
-    
-    def __iter__(self):
-        self._iterator.set_vector(self._vec)
-        return self._iterator
-    
-    def __len__(self):
-        return self._vec.size()
-
 cdef class DistGraphPartition:
-    cdef public dict nodes
-    cdef public object _edges  # Changed to object to accept defaultdict
-    cdef readonly str id
-    
     def __cinit__(self, str graph_id):
         self.nodes = {}
-        self._edges = defaultdict(EdgeVector)  # Now this should work
+        self._edges = defaultdict(EdgeVector)
         self.id = graph_id
     
     def add_edge(self, object edge):
+        if not isinstance(edge, Edge):
+            raise TypeError("Expected Edge object")
         (<EdgeVector>self._edges[edge.src]).append(edge.src, edge.dest, edge.weight)
     
     def add_node(self, bytes node):
@@ -208,5 +181,5 @@ cdef class DistGraphPartition:
     def get_edges(self, bytes node):
         return self._edges[node]
 
-    def node_present(self, bytes node):
+    cpdef bint node_present(self, bytes node) except *:
         return node in self._edges

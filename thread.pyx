@@ -1,21 +1,21 @@
 from collections import defaultdict, deque
-from io import BytesIO
-# import socket
-
+from libcpp.set cimport set as cpp_set
+from libcpp.string cimport string
+from cpython.bytes cimport PyBytes_Check
 import msgpack
 import zmq
 
-from graph import Edge, DistGraphPartition
-from message import Message
+from graph cimport Edge, DistGraphPartition
 
-class Thread:
-    def __init__(self, ip, port, master_ip, master_port):
+cdef class Thread:
+    
+    def __cinit__(self, str ip, int port, str master_ip, int master_port):
         self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REP)
 
         self.ip = ip
         self.port = port
 
+        # Initialize pull socket
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 10000)
@@ -23,6 +23,7 @@ class Thread:
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
+        # Initialize push socket
         self.push_socket = self.context.socket(zmq.PUSH)
         self.push_socket.connect(f'tcp://{master_ip}:{master_port + 1000}')
         self.push_socket.setsockopt(zmq.SNDHWM, 10000)
@@ -30,65 +31,75 @@ class Thread:
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
-        # adjacency list, source → destinies kept in the clients
-        self.graphs = dict()
-
-        # cache buffer to keep track of visited nodes
+        # Initialize data structures
+        self.graphs = {}
         self.visited = set()
         self.nodes_added = set()
         self.search_edges = defaultdict(deque)
-        self.to_visit = dict()
+        self.to_visit = {}
 
         self.__opt = {
             'node_batch': 500,
             'edge_batch': 500
         }
-
-    def set_opt(self, opt, value):
-        try:
-            self.__opt[opt] = value
-        except KeyError:
+    
+    cpdef set_opt(self, str opt, int value):
+        if opt not in self.__opt:
             raise ValueError(f"Invalid option: {opt}")
-
-    def recv(self):
-        data = self.socket.recv()
-        msg = Message(data[:20].strip(), data[20:].strip())
-        return msg
-
-    def exec(self, msg_raw):
-        msg = msgpack.unpackb(msg_raw, raw=False)
-        header = msg['header']
+        self.__opt[opt] = value
+    
+    cpdef dict recv(self):
+        cdef bytes data = self.socket.recv()
+        return {
+            'header': data[:20].strip(),
+            'body': data[20:].strip()
+        }
+    
+    cpdef exec(self, bytes msg_raw):
+        cdef dict msg = msgpack.unpackb(msg_raw, raw=False)
+        cdef bytes header = msg['header']
+        cdef bytes node, n1, n2
+        cdef bytes weight
+        cdef str id
+        cdef list nodes, edges
+        cdef DistGraphPartition graph
+        
         if header == b'CREATE_GRAPH':
             id = msg['body'].decode()
             self.graphs[id] = DistGraphPartition(id)
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'RESTART':
             self.graphs.clear()
             self.visited.clear()
             self.nodes_added.clear()
             self.search_edges.clear()
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'ADD_NODE':
             node = msg['body']['node']
             id = msg['body']['id']
             graph = self.graphs[id]
-            graph.edges[node] = []
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            graph.add_node(node)
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'ADD_NODES':
             nodes = msg['body']['nodes']
             id = msg['body']['id']
             graph = self.graphs[id]
             for node in nodes:
                 graph.add_node(node)
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'ADD_EDGE':
             n1 = msg['body']['n1']
             n2 = msg['body']['n2']
             weight = msg['body']['weight']
             id = msg['body']['id']
             graph = self.graphs[id]
-            graph.add_edge(Edge(n1, n2, weight))
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            graph.add_edge(Edge(n1, n2, int(weight)))
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'ADD_EDGES':
             edges = msg['body']['edges']
             id = msg['body']['id']
@@ -97,11 +108,13 @@ class Thread:
                 if edge == b'': continue
                 n1, n2, weight = edge.split(b',')
                 graph.add_edge(Edge(n1, n2, int(weight)))
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'INIT_BFS' or header == b'INIT_DFS':
-            self.visited = set()
-            self.nodes_added = set()
-            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+            self.visited.clear()
+            self.nodes_added.clear()
+            self.push_socket.send(msgpack.packb({'header': b'OK', 'body': b''}))
+            
         elif header == b'BFS' or header == b'DFS':
             nodes = msg['body']['nodes']
             id = msg['body']['id']
@@ -109,78 +122,37 @@ class Thread:
             if header == b'BFS':
                 self.bfs(nodes, id, src_id)
 
-    # def bfs(self, nodes, id):
-    #     graph = self.graphs[id]
-    #     batch = deque(nodes)
-    #     new_nodes = []
-    #     new_visited = set()
-    #     poller = zmq.Poller()
-    #     poller.register(self.push_socket, zmq.POLLOUT)
-    #     def send_updates(new_nodes, new_visited, done=False):
-    #         message = {
-    #             'NEW_NODES': new_nodes,
-    #             'VISITED': list(new_visited),
-    #             'DONE': done
-    #         }
-    #         while True:
-    #             events = dict(poller.poll(timeout=1000))
-    #             if self.push_socket in events:
-    #                 self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
-    #                 break
+    cpdef bfs(self, list nodes, str id, str src_id):
+        cdef DistGraphPartition src_graph = self.graphs[src_id]
+        cdef DistGraphPartition graph = self.graphs[id]
+        cdef set visited = set()
+        cdef list cross_nodes = []
+        cdef list cross_edges = []
+        cdef bytes current
+        cdef object batch = deque(nodes)
 
-    #     while batch:
-    #         current = batch.popleft()
-    #         if current in self.visited or current not in graph.edges:
-    #             continue
-
-    #         for edge in graph.edges[current]:
-    #             if edge.dest not in self.nodes_added:
-    #                 batch.append(edge.dest)
-    #                 self.nodes_added.add(edge.dest)
-    #                 self.search_edges[edge.src].append(edge)
-    #                 new_nodes.append((edge.src, edge.dest))
-    #         self.visited.add(current)
-    #         new_visited.add(current)
-
-    #         if len(new_nodes) >= self.__opt['node_batch']:
-    #             send_updates(new_nodes, new_visited)
-    #             new_nodes.clear()
-    #             new_visited.clear()
-
-    #     send_updates(new_nodes, new_visited, done=True)
-
-    def bfs(self, nodes, id, src_id):
-        src_graph = self.graphs[src_id]
-        graph = self.graphs[id]
-        visited = set()
-        cross_nodes = list()
-        cross_edges = list()
-        
-        batch = deque(nodes)
         self.nodes_added.update(nodes)
+        
         while batch:
             current = batch.popleft()
             
-            # Skip if already visited
             if current in self.visited:
                 continue
                 
-            # Handle nodes not in this partition
             if not src_graph.node_present(current):
                 if current not in self.visited:
                     cross_nodes.append(current)
                 continue
                 
-            # Process the node
-            graph.add_node(current) # Initialize edges list
+            graph.add_node(current)
             self.visited.add(current)
             visited.add(current)
             
-            # Process edges
             for edge in src_graph.get_edges(current):
                 src, dest, _ = edge
-                if dest in self.nodes_added: continue
-                if not src_graph.node_present(dest): # cross-partition edge
+                if dest in self.nodes_added:
+                    continue
+                if not src_graph.node_present(dest):
                     cross_edges.append((src, dest))
                     self.nodes_added.add(dest)
                 else:
@@ -189,7 +161,6 @@ class Thread:
                 if dest not in self.visited:
                     batch.append(dest)
 
-            # Send batch if threshold reached
             if len(visited) >= self.__opt['node_batch']:
                 message = {
                     'nodes': list(visited),
@@ -197,11 +168,10 @@ class Thread:
                     'cross_nodes': cross_nodes,
                     'cross_edges': cross_edges
                 }
-                self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
+                self.push_socket.send(msgpack.packb({'header': b'VISITED', 'body': message}))
                 visited.clear()
                 cross_nodes.clear()
 
-        # Send remaining nodes
         if visited or cross_nodes:
             message = {
                 'nodes': list(visited),
@@ -209,8 +179,7 @@ class Thread:
                 'cross_nodes': cross_nodes,
                 'cross_edges': cross_edges
             }
-            self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
+            self.push_socket.send(msgpack.packb({'header': b'VISITED', 'body': message}))
 
-        # Signal completion
         self.push_socket.send(msgpack.packb(
-            Message(b'DONE', {'thread': (self.ip, self.port)}).build()))
+            {'header': b'DONE', 'body': {'thread': (self.ip, self.port)}}))
