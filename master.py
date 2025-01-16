@@ -24,9 +24,9 @@ class Master:
         self.context = zmq.Context()
 
         self.pull_socket = self.context.socket(zmq.PULL)
-        self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
+        self.pull_socket.bind(f'tcp://{ip}:{port}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
-        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
@@ -117,7 +117,7 @@ class Master:
     def add_thread(self, ip, port):
         thread = (ip, port)
         push_socket = self.context.socket(zmq.PUSH)
-        push_socket.connect(f'tcp://{ip}:{port + 1000}')
+        push_socket.connect(f'tcp://{ip}:{port}')
         push_socket.setsockopt(zmq.SNDHWM, 1000)
         push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)

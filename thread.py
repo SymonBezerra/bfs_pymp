@@ -17,16 +17,16 @@ class Thread:
         self.port = port
 
         self.pull_socket = self.context.socket(zmq.PULL)
-        self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
-        self.pull_socket.setsockopt(zmq.RCVHWM, 10000)
-        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.pull_socket.bind(f'tcp://{ip}:{port}')
+        self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
         self.push_socket = self.context.socket(zmq.PUSH)
-        self.push_socket.connect(f'tcp://{master_ip}:{master_port + 1000}')
-        self.push_socket.setsockopt(zmq.SNDHWM, 10000)
-        self.push_socket.setsockopt(zmq.SNDBUF, 8388608)
+        self.push_socket.connect(f'tcp://{master_ip}:{master_port}')
+        self.push_socket.setsockopt(zmq.SNDHWM, 1000)
+        self.push_socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
@@ -112,46 +112,6 @@ class Thread:
             src_id = msg['body']['src_id']
             if header == b'BFS':
                 self.bfs(nodes, id, src_id)
-
-    # def bfs(self, nodes, id):
-    #     graph = self.graphs[id]
-    #     batch = deque(nodes)
-    #     new_nodes = []
-    #     new_visited = set()
-    #     poller = zmq.Poller()
-    #     poller.register(self.push_socket, zmq.POLLOUT)
-    #     def send_updates(new_nodes, new_visited, done=False):
-    #         message = {
-    #             'NEW_NODES': new_nodes,
-    #             'VISITED': list(new_visited),
-    #             'DONE': done
-    #         }
-    #         while True:
-    #             events = dict(poller.poll(timeout=1000))
-    #             if self.push_socket in events:
-    #                 self.push_socket.send(msgpack.packb(Message(b'RESULT', message).build()))
-    #                 break
-
-    #     while batch:
-    #         current = batch.popleft()
-    #         if current in self.visited or current not in graph.edges:
-    #             continue
-
-    #         for edge in graph.edges[current]:
-    #             if edge.dest not in self.nodes_added:
-    #                 batch.append(edge.dest)
-    #                 self.nodes_added.add(edge.dest)
-    #                 self.search_edges[edge.src].append(edge)
-    #                 new_nodes.append((edge.src, edge.dest))
-    #         self.visited.add(current)
-    #         new_visited.add(current)
-
-    #         if len(new_nodes) >= self.__opt['node_batch']:
-    #             send_updates(new_nodes, new_visited)
-    #             new_nodes.clear()
-    #             new_visited.clear()
-
-    #     send_updates(new_nodes, new_visited, done=True)
 
     def bfs(self, nodes, id, src_id):
         src_graph = self.graphs[src_id]
