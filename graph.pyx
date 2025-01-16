@@ -1,8 +1,5 @@
 # distutils: language=c++
 
-import uuid
-import heapq
-import msgpack
 
 from libcpp.vector cimport vector
 from libcpp.string cimport string
@@ -10,6 +7,10 @@ from collections import defaultdict
 from cython.operator cimport dereference as deref
 from cpython.object cimport PyObject
 from cpython.bytes cimport PyBytes_Check
+
+import heapq
+import msgpack
+import uuid
 
 from message import Message
 

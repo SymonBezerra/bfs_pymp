@@ -26,7 +26,7 @@ class Master:
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
         self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
-        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 

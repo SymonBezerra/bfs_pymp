@@ -2,6 +2,7 @@ from collections import defaultdict, deque
 from libcpp.set cimport set as cpp_set
 from libcpp.string cimport string
 from cpython.bytes cimport PyBytes_Check
+
 import msgpack
 import zmq
 
@@ -18,16 +19,16 @@ cdef class Thread:
         # Initialize pull socket
         self.pull_socket = self.context.socket(zmq.PULL)
         self.pull_socket.bind(f'tcp://{ip}:{port + 1000}')
-        self.pull_socket.setsockopt(zmq.RCVHWM, 10000)
-        self.pull_socket.setsockopt(zmq.RCVBUF, 8388608)
+        self.pull_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.pull_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
         # Initialize push socket
         self.push_socket = self.context.socket(zmq.PUSH)
         self.push_socket.connect(f'tcp://{master_ip}:{master_port + 1000}')
-        self.push_socket.setsockopt(zmq.SNDHWM, 10000)
-        self.push_socket.setsockopt(zmq.SNDBUF, 8388608)
+        self.push_socket.setsockopt(zmq.SNDHWM, 1000)
+        self.push_socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
