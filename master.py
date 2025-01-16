@@ -228,8 +228,6 @@ class Master:
         graph_id = graph.id
         root_node = node.encode()
 
-        claimed_partitions = set()
-
         visited = set()
         pending_nodes = set()  # Track nodes that are being processed
 
@@ -253,7 +251,6 @@ class Master:
                     'nodes': [root_node],
                     'id': bfs_tree_id,
                     'src_id': graph_id,
-                    'partitions': list(claimed_partitions)
                 }).build()
             )
         )
@@ -294,13 +291,12 @@ class Master:
                     for target_thread, nodes_to_send in buffers.items():
                         if nodes_to_send:
                             for i in range(0, len(nodes_to_send), self.__opt['node_batch']):
-                                batch = nodes_to_send[i:i+self.__opt['node_batch']]
+                                batch = [node for node in nodes_to_send[i:i+self.__opt['node_batch']] if node not in visited]
                                 self.threads[target_thread].send(
                                     msgpack.packb(Message(b'BFS', {
                                         'nodes': batch,
                                         'id': bfs_tree_id,
                                         'src_id': graph_id,
-                                        'partitions': list(claimed_partitions)
                                     }).build())
                                 )
                                 active_threads[target_thread] = True
