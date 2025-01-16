@@ -38,7 +38,7 @@ cdef class DistGraph:
     cdef str __id
     cdef object __master
     cpdef void add_node(self, object node) except *
-    cpdef object bfs(self, object node) except *
+    cpdef object bfs(self, str node) except *
 
 cdef class DistGraphPartition:
     cdef public dict nodes

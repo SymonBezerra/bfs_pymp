@@ -157,7 +157,7 @@ cdef class DistGraph:
 
         self.__master.add_edge(label_n1, label_n2, weight, self)
     
-    cpdef object bfs(self, object node) except *:
+    cpdef object bfs(self, str node) except *:
         return self.__master.bfs(node, self)
     
     def __len__(self):
