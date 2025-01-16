@@ -9,7 +9,7 @@ from graph import Edge, DistGraphPartitition
 from message import Message
 
 class Thread:
-    def __init__(self, ip, port, master_ip, master_port):
+    def __init__(self, ip, port, master_ip, master_port, pub_port):
         self.context = zmq.Context()
         self.socket = self.context.socket(zmq.REP)
 
@@ -30,14 +30,21 @@ class Thread:
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.push_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
+        self.sub_socket = self.context.socket(zmq.SUB)
+        self.sub_socket.connect(f'tcp://{master_ip}:{pub_port}')
+        self.sub_socket.setsockopt(zmq.SUBSCRIBE, b'')
+        self.sub_socket.setsockopt(zmq.RCVHWM, 1000)
+        self.sub_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
+        self.sub_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.sub_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+
         # adjacency list, source → destinies kept in the clients
         self.graphs = dict()
 
         # cache buffer to keep track of visited nodes
         self.visited = set()
         self.nodes_added = set()
-        self.search_edges = defaultdict(deque)
-        self.to_visit = dict()
+        self.root_node = None
 
         self.__opt = {
             'node_batch': 500,
@@ -66,7 +73,6 @@ class Thread:
             self.graphs.clear()
             self.visited.clear()
             self.nodes_added.clear()
-            self.search_edges.clear()
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'ADD_NODE':
             node = msg['body']['node']
@@ -79,7 +85,9 @@ class Thread:
             id = msg['body']['id']
             graph = self.graphs[id]
             for node in nodes:
-                graph.edges[node] = []
+                if tuple(node['owner']) == (self.ip, self.port):
+                    graph.edges[node['label']] = []
+                graph.nodes[node['label']] = tuple(node['thread']) if node['thread'] else tuple()
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'ADD_EDGE':
             n1 = msg['body']['n1']
@@ -99,12 +107,10 @@ class Thread:
                 graph.edges[n1].append(Edge(n1, n2, int(weight)))
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'INIT_BFS' or header == b'INIT_DFS':
+            root_node = msg['body']['root_node']
+            self.root_node = root_node
             self.visited = set()
             self.nodes_added = set()
-            self.search_edges = defaultdict(deque)
-            self.to_visit = {
-                node: False for node in self.graphs[msg['body']['id']].edges
-            }
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'BFS' or header == b'DFS':
             nodes = msg['body']['nodes']
@@ -118,39 +124,43 @@ class Thread:
         graph = self.graphs[id]
         visited = set()
         cross_nodes = list()
-        cross_edges = list()
-        
+
         batch = deque(nodes)
         self.nodes_added.update(nodes)
+
         while batch:
             current = batch.popleft()
-            
+
             # Skip if already visited
             if current in self.visited:
                 continue
-                
+
             # Handle nodes not in this partition
-            if current not in src_graph.edges:
-                if current not in self.visited:
-                    cross_nodes.append(current)
+            if current not in src_graph.edges and current not in self.visited:
+                cross_nodes.append(current)
                 continue
-                
+
             # Process the node
             graph.edges[current] = []  # Initialize edges list
             self.visited.add(current)
             visited.add(current)
-            
+
             # Process edges
             for edge in src_graph.edges[current]:
                 src = edge.src
                 dest = edge.dest
+                dest_thread = src_graph.nodes[dest]
                 if dest in self.nodes_added: continue
-                if dest not in src_graph.edges: # cross-partition edge
-                    cross_edges.append((src, dest))
-                    self.nodes_added.add(dest)
-                else:
+                if dest not in src_graph.edges:  # cross-partition edge
+                    if dest_thread == (self.ip, self.port) and dest != self.root_node:  # if destination is in another partition
+                        cross_nodes.append(dest)
+                        self.nodes_added.add(dest)
+                        graph.edges[src].append(Edge(src, dest))
+                        graph.nodes[dest] = dest_thread
+                else:  # if destination is in this partition
                     graph.edges[src].append(Edge(src, dest))
                     self.nodes_added.add(dest)
+
                 if dest not in self.visited:
                     batch.append(dest)
 
@@ -160,7 +170,6 @@ class Thread:
                     'nodes': list(visited),
                     'thread': (self.ip, self.port),
                     'cross_nodes': cross_nodes,
-                    'cross_edges': cross_edges
                 }
                 self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
                 visited.clear()
@@ -171,8 +180,7 @@ class Thread:
             message = {
                 'nodes': list(visited),
                 'thread': (self.ip, self.port),
-                'cross_nodes': cross_nodes,
-                'cross_edges': cross_edges
+                'cross_nodes': cross_nodes
             }
             self.push_socket.send(msgpack.packb(Message(b'VISITED', message).build()))
 

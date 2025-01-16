@@ -7,9 +7,10 @@ import msgpack
 from message import Message
 
 class Node:
-    def __init__(self, label: bytes, attr=dict()):
+    def __init__(self, label: bytes, owner=None, thread=None):
         self.label = label
-        self.attr = attr
+        self.owner = owner
+        self.thread = thread
 
     def __hash__(self):
         return hash(self.label)
@@ -75,5 +76,7 @@ class DistGraph:
 class DistGraphPartitition:
     def __init__(self, id):
         self.__id = id
+
+        self.nodes = dict()
 
         self.edges = defaultdict(list)

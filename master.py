@@ -1,4 +1,4 @@
-from collections import deque
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 import heapq
 import logging
@@ -30,6 +30,13 @@ class Master:
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.pull_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
+        self.pub_socket = self.context.socket(zmq.PUB)
+        self.pub_socket.bind(f'tcp://{ip}:{port + 1000}')
+        self.pub_socket.setsockopt(zmq.SNDHWM, 1000)
+        self.pub_socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
+        self.pub_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
+        self.pub_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
+
         # (ip, port) -> push socket
         self.threads = dict()
 
@@ -55,7 +62,7 @@ class Master:
             poller.register(self.threads[thread], zmq.POLLOUT)
         poller.register(self.pull_socket, zmq.POLLIN)
         buffers = {port: [] for port in self.threads}
-        node_buffers = {port: [] for port in self.threads}
+        node_buffers = {port: set() for port in self.threads}
 
         with open(path, 'r') as file:
 
@@ -68,21 +75,45 @@ class Master:
 
             file.seek(0)
 
+            node_map = defaultdict(lambda: Node(b''))
+
             for line in file:
                 src, dest = line.strip().split(' ')
                 src_node = src.encode()
                 dest_node = dest.encode()
+                src_val = node_map.get(src_node, Node(src_node))
+                dest_val = node_map.get(dest_node, Node(dest_node))
 
                 if graph.nodes[src_node] is None:
                     graph.nodes[src_node] = self.__get_partition(graph, src_node)
-                    node_buffers[graph.nodes[src_node]].append(src_node)
+                    src_val.owner = graph.nodes[src_node]
+                    # node_buffers[graph.nodes[src_node]].append(src_val)
                 if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
                     graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
-                    node_buffers[graph.nodes[dest_node]].append(dest_node)
+                    dest_val.owner = graph.nodes[dest_node]
+                    # node_buffers[graph.nodes[dest_node]].append(dest_node)
                 elif graph.nodes[dest_node] is None and graph.nodes[src_node] is None:
                     graph.nodes[dest_node] = self.__get_partition(graph, dest_node)
-                    node_buffers[graph.nodes[dest_node]].append(dest_node)
+                    dest_val.owner = graph.nodes[dest_node]
+                    # node_buffers[graph.nodes[dest_node]].append(dest_node)
+                if not src_val.owner:
+                    src_val.owner = graph.nodes[src_node]
+                if not dest_val.owner:
+                    dest_val.owner = graph.nodes[dest_node]
+
+                if not dest_val.thread:
+                    dest_val.thread = graph.nodes[src_node]
+                    node_map[dest_node] = dest_val
+                if src_node not in node_map:
+                    node_map[src_node] = src_val
+                if dest_node not in node_map:
+                    node_map[dest_node] = dest_val
+                node_buffers[graph.nodes[src_node]].add(src_val)
+                node_buffers[graph.nodes[src_node]].add(dest_val)
+                node_buffers[graph.nodes[dest_node]].add(dest_val)
                 buffers[graph.nodes[src_node]].append(f'{src},{dest},1'.encode())
+
+            node_buffers = {port: list(nodes) for port, nodes in node_buffers.items()}
 
         node_batches = 0
         for port in node_buffers:
@@ -90,7 +121,11 @@ class Master:
             LOGGER.info(f'Sending nodes to {port}')
             for i in range(0, len(node_buffers[port]), self.__opt['node_batch']):
                 message = Message(b'ADD_NODES', {
-                    'nodes': node_buffers[port][i:i+self.__opt['node_batch']],
+                    'nodes': [{
+                        'label': node.label,
+                        'thread': node.thread,
+                        'owner': node.owner
+                    } for node in node_buffers[port][i:i+self.__opt['node_batch']]],
                     'id': graph.id
                 })
                 push_socket.send(msgpack.packb(message.build()))
@@ -107,8 +142,8 @@ class Master:
                 push_socket.send(msgpack.packb(message.build()))
                 edge_batches += 1
 
-        events = dict(poller.poll(timeout=1000))
         while edge_batches > 0:
+            events = dict(poller.poll(timeout=1000))
             if self.pull_socket in events:
                 self.pull_socket.recv()
                 edge_batches -= 1
@@ -163,7 +198,7 @@ class Master:
             self.pull_socket.recv()
         if graph.nodes[dest_node] is None and graph.nodes[src_node] is not None:
             graph.nodes[dest_node] = self.__get_partition(graph, dest_node, graph.nodes[src_node])
-            
+
             socket = self.threads[graph.nodes[dest_node]]
             socket.send(msgpack.packb(Message(b'ADD_NODE', {
                 'id': id,
@@ -193,6 +228,8 @@ class Master:
         graph_id = graph.id
         root_node = node.encode()
 
+        claimed_partitions = set()
+
         visited = set()
         pending_nodes = set()  # Track nodes that are being processed
 
@@ -205,7 +242,7 @@ class Master:
         # Initialize all threads
         for thread in self.threads:
             socket = self.threads[thread]
-            socket.send(msgpack.packb(Message(b'INIT_BFS', {'id': graph.id}).build()))
+            socket.send(msgpack.packb(Message(b'INIT_BFS', {'root_node': root_node}).build()))
             self.pull_socket.recv()
 
         # Start with root node
@@ -215,13 +252,13 @@ class Master:
                 Message(b'BFS', {
                     'nodes': [root_node],
                     'id': bfs_tree_id,
-                    'src_id': graph_id
+                    'src_id': graph_id,
+                    'partitions': list(claimed_partitions)
                 }).build()
             )
         )
         active_threads[root_thread] = True
         pending_nodes.add(root_node)
-        edge_buffers = {port: [] for port in self.threads}
 
         while any(active_threads.values()) or pending_nodes:
             events = dict(poller.poll(timeout=1000))
@@ -230,12 +267,11 @@ class Master:
                 msg = msgpack.unpackb(msg_raw, raw=False)
                 header = msg['header']
                 body = msg['body']
-                
                 if header == b'VISITED':
                     nodes = body['nodes']
                     ip, port = body['thread']
                     thread = (ip, port)
-                    
+
                     # Process visited nodes
                     for node in nodes:
                         if node not in visited:
@@ -245,9 +281,8 @@ class Master:
 
                     # Process cross nodes immediately
                     cross_nodes = body['cross_nodes']
-                    cross_edges = body['cross_edges']
                     buffers = {port: [] for port in self.threads}
-                    
+
                     for node in cross_nodes:
                         if node not in visited and node not in pending_nodes:
                             target_thread = graph.nodes[node]
@@ -264,30 +299,17 @@ class Master:
                                     msgpack.packb(Message(b'BFS', {
                                         'nodes': batch,
                                         'id': bfs_tree_id,
-                                        'src_id': graph_id
+                                        'src_id': graph_id,
+                                        'partitions': list(claimed_partitions)
                                     }).build())
                                 )
                                 active_threads[target_thread] = True
-
-                    for edge in cross_edges:
-                        src, dest = edge
-                        if dest not in visited:
-                            edge_buffers[graph.nodes[src]].append(f'{src},{dest},1'.encode())
 
 
                 elif header == b'DONE':
                     ip, port = body['thread']
                     active_threads[(ip, port)] = False
 
-        for port in edge_buffers:
-            push_socket = self.threads[port]
-            for i in range(0, len(edge_buffers[port]), self.__opt['edge_batch']):
-                message = Message(b'ADD_EDGES', {
-                    'edges': edge_buffers[port][i:i+self.__opt['edge_batch']],
-                    'id': graph.id
-                })
-                push_socket.send(msgpack.packb(message.build()))
-                # self.pull_socket.recv()
         return bfs_tree
 
     def dict_to_graph(self, graph_dict):
