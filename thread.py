@@ -127,7 +127,7 @@ class Thread:
         graph = self.graphs[id]
         visited = set()
         cross_nodes = set()
-        cross_edges = dict()
+        cross_edges = defaultdict(deque)
 
         batch = deque(nodes)
         self.nodes_added.update(nodes)
@@ -156,7 +156,7 @@ class Thread:
                 if dest in self.nodes_added: continue
                 if dest not in src_graph.edges:  # cross-partition edge
                     cross_nodes.add(dest)
-                    cross_edges[dest] = Edge(src, dest)
+                    cross_edges[dest].append(Edge(src, dest))
                 else:  # if destination is in this partition
                     graph.edges[src].append(Edge(src, dest))
                     self.nodes_added.add(dest)
@@ -178,9 +178,12 @@ class Thread:
                     body =  msg['body']
                     for node in body:
                         if body[node]:
-                            edge = cross_edges.get(node, None)
-                            if edge:
-                                graph.edges[edge.src].append(cross_edges[node])
+                            edges = cross_edges.get(node, [])
+                            for edge in edges:
+                                dest = edge.dest
+                                if dest not in self.nodes_added:
+                                    graph.edges[edge.src].append(edge)
+                                    self.nodes_added.add(dest)
                     visited.clear()
                     cross_nodes.clear()
                     cross_edges.clear()
@@ -199,9 +202,12 @@ class Thread:
                 body =  msg['body']
                 for node in body:
                     if body[node]:
-                        edge = cross_edges.get(node, None)
-                        if edge:
-                            graph.edges[edge.src].append(cross_edges[node])
+                        edges = cross_edges.get(node, [])
+                        for edge in edges:
+                            dest = edge.dest
+                            if dest not in self.nodes_added:
+                                graph.edges[edge.src].append(edge)
+                                self.nodes_added.add(dest)
             visited.clear()
             cross_nodes.clear()
             cross_edges.clear()
