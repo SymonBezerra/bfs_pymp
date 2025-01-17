@@ -215,6 +215,7 @@ class Master:
         root_node = node.encode()
 
         visited = set()
+        nodes_added = set()
         pending_nodes = set()  # Track nodes that are being processed
 
         poller = zmq.Poller()
@@ -266,6 +267,7 @@ class Master:
                         for node in nodes:
                             if node not in visited:
                                 visited.add(node)
+                                nodes_added.add(node)
                                 bfs_tree.nodes[node] = thread
                                 pending_nodes.discard(node)
 
@@ -275,7 +277,8 @@ class Master:
                         buffers = {port: [] for port in self.threads}
 
                         for node in cross_nodes:
-                            if node not in visited and node not in pending_nodes:
+                            if node not in nodes_added and node not in pending_nodes:
+                                nodes_added.add(node)
                                 target_thread = graph.nodes[node]
                                 buffers[target_thread].append(node)
                                 pending_nodes.add(node)

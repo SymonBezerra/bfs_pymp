@@ -147,14 +147,8 @@ class Thread:
             for edge in src_graph.edges[current]:
                 src = edge.src
                 dest = edge.dest
-                # dest_thread = src_graph.nodes[dest]
                 if dest in self.nodes_added: continue
                 if dest not in src_graph.edges:  # cross-partition edge
-                    # if dest_thread == (self.ip, self.port) and dest != self.root_node:  # if destination is in another partition
-                    #     cross_nodes.append(dest)
-                    #     self.nodes_added.add(dest)
-                    #     graph.edges[src].append(Edge(src, dest))
-                    #     graph.nodes[dest] = dest_thread
                     cross_nodes.add(dest)
                     cross_edges[dest] = Edge(src, dest)
                 else:  # if destination is in this partition
@@ -209,4 +203,3 @@ class Thread:
         # Signal completion
         self.push_socket.send(msgpack.packb(
             Message(b'DONE', {'thread': (self.ip, self.port)}).build()))
-        print(graph.edges)
