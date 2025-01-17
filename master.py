@@ -137,7 +137,7 @@ class Master:
         self.threads[thread] = push_socket
 
         socket = self.context.socket(zmq.REP)
-        socket.bind(f'tcp://{ip}:{rep_port}')
+        socket.bind(f'tcp://0.0.0.0:{rep_port}')
         socket.setsockopt(zmq.SNDHWM, 1000)
         socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
         socket.setsockopt(zmq.RCVHWM, 1000)
@@ -279,7 +279,7 @@ class Master:
                         buffers = {port: [] for port in self.threads}
 
                         for node in cross_nodes:
-                            if node not in nodes_added and node not in visited:
+                            if node not in nodes_added:
                                 nodes_added.add(node)
                                 target_thread = graph.nodes[node]
                                 buffers[target_thread].append(node)
