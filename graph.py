@@ -76,6 +76,7 @@ class DistGraph:
             socket = self.__master.threads[thread]
             socket.send(msgpack.packb(Message(b'DELETE', self.__id).build()))
             self.__master.pull_socket.recv()
+        del self.__master.partition_loads[self.__id]
 
 class DistGraphPartitition:
     def __init__(self, id):
