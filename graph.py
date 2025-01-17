@@ -7,10 +7,8 @@ import msgpack
 from message import Message
 
 class Node:
-    def __init__(self, label: bytes, owner=None, thread=None):
+    def __init__(self, label: bytes):
         self.label = label
-        self.owner = owner
-        self.thread = thread
 
     def __hash__(self):
         return hash(self.label)
