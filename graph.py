@@ -41,7 +41,7 @@ class DistGraph:
 
         for thread in self.__master.threads:
             socket = self.__master.threads[thread]
-            socket.send(msgpack.packb(Message(b'CREATE_GRAPH', self.__id.encode()).build()))
+            socket.send(msgpack.packb(Message(b'CREATE_GRAPH', self.__id).build()))
             self.__master.pull_socket.recv()
 
         self.__master.partition_loads[self.__id] = [(0, partition) for partition in self.__master.threads]
@@ -70,11 +70,15 @@ class DistGraph:
 
     def __len__(self):
         return len(self.nodes)
+    
+    def __del__(self):
+        for thread in self.__master.threads:
+            socket = self.__master.threads[thread]
+            socket.send(msgpack.packb(Message(b'DELETE', self.__id).build()))
+            self.__master.pull_socket.recv()
 
 class DistGraphPartitition:
     def __init__(self, id):
         self.__id = id
-
-        self.nodes = dict()
 
         self.edges = defaultdict(list)

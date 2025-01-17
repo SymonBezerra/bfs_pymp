@@ -34,6 +34,8 @@ class Thread:
         self.req_socket.connect(f'tcp://{master_ip}:{req_port}')
         self.req_socket.setsockopt(zmq.RCVHWM, 1000)
         self.req_socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
+        self.req_socket.setsockopt(zmq.SNDHWM, 1000)
+        self.req_socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
         self.req_socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         self.req_socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
 
@@ -65,8 +67,12 @@ class Thread:
         msg = msgpack.unpackb(msg_raw, raw=False)
         header = msg['header']
         if header == b'CREATE_GRAPH':
-            id = msg['body'].decode()
+            id = msg['body']
             self.graphs[id] = DistGraphPartitition(id)
+            self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
+        elif header == b'DELETE':
+            body = msg['body']
+            del self.graphs[body]
             self.push_socket.send(msgpack.packb(Message(b'OK', b'').build()))
         elif header == b'RESTART':
             self.graphs.clear()

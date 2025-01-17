@@ -140,6 +140,8 @@ class Master:
         socket.bind(f'tcp://{ip}:{rep_port}')
         socket.setsockopt(zmq.SNDHWM, 1000)
         socket.setsockopt(zmq.SNDBUF, 1024 * 1024)
+        socket.setsockopt(zmq.RCVHWM, 1000)
+        socket.setsockopt(zmq.RCVBUF, 1024 * 1024)
         socket.setsockopt(zmq.TCP_KEEPALIVE, 1)
         socket.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 300)
         self.rep_sockets[(ip, rep_port)] = socket
